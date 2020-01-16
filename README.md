@@ -27,7 +27,7 @@ interface Article {
   articleId: number;
   title: string;
   /**
-   * @realm_index
+   * @sqlite_index
    *
    */
   url: string;
@@ -63,11 +63,11 @@ type CompoundType = SubTypeA | SubTypeB;
 add a script file, for example 'scripts/generateSchemas.ts':
 ```
 import path from 'path';
-import { generator } from 'realm-ts-schema-generator';
+import { generator } from 'ts-sqlite-generator typescript';
 
 generator(
     [path.join(__dirname, '../src/store/models.ts')],
-    path.join(__dirname, '../realm/__generated__/schemas.ts'),
+    path.join(__dirname, '../realm/__generated__/schema.ts'),
     path.join(__dirname, '../tsconfig.json')
 );
 ```
