@@ -5,8 +5,8 @@
   "source": "src/index.ts",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "repository": "git@github.com:dpnolte/realm-schema-generator.git",
-  "author": "Derk Nolte <derk.nolte@sanoma.com>",
+  "repository": "git@github.com:dpnolte/ts-sqlite-generator.git",
+  "author": "Derk Nolte <dpnolte@gmail.com>",
   "license": "MIT",
   "private": false,
   "scripts": {
