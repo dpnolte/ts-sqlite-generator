@@ -1,30 +1,30 @@
 import fs from "fs-extra";
+import path from "path";
 
-import { Tables } from "./resolver";
+import { TableMap } from "./resolveTables";
 
 // TODO add support for unique
-export const generateQueries = (tables: Tables, targetPath: string) => {
+export const generateQueries = (tables: TableMap, targetPath: string) => {
   console.log("> generating create table queries");
-
-  const sortedTables = Object.values(tables).sort(
-    (a, b) => b.table.rank - a.table.rank
-  );
 
   let content = "// Auto-generated, do not edit\n\n";
 
   const queryNames: string[] = [];
   const tab = "  ";
-  sortedTables.forEach(item => {
-    content += `// table based on interface from ${item.relativePath}\n`;
-    const { table } = item;
+  const targetDir = path.dirname(targetPath);
+
+  Object.values(tables).forEach(table => {
+    const relativePath = path.relative(targetDir, table.declaredType.path);
+    content += `// table based on ${table.declaredType.name} type definitions in ${relativePath}\n`;
+
     const queryName = `${table.name}SQL`;
     queryNames.push(queryName);
     content += `export const ${queryName} = \``;
     content += `CREATE TABLE IF NOT EXISTS ${table.name} (\n`;
 
-    const indices: string[] = [];
     const columns = Object.values(table.columns);
     const lastColumnsIndex = columns.length - 1;
+
     columns.forEach((column, index) => {
       content += `${tab}${column.name} ${column.type}`;
       if (table.primaryKey === column.name) {
@@ -44,35 +44,39 @@ export const generateQueries = (tables: Tables, targetPath: string) => {
         // avoid -->
         content += " UNIQUE";
       }
-      if (column.foreignKey) {
-        content += ",\n";
-        content += `${tab}FOREIGN KEY (${column.foreignKey.fromTableColumnName})\n`;
-        content += `${tab.repeat(2)}REFERENCES ${
-          column.foreignKey.toTable.name
-        } (${column.foreignKey.toTableColumnName})`;
-      }
 
-      if (lastColumnsIndex === index) {
+      if (lastColumnsIndex === index && table.foreignKeys.length === 0) {
         content += "\n";
       } else {
         content += ",\n";
       }
-
-      if (column.index) {
-        indices.push(column.name);
-      }
     });
-    content += ");\n";
-    if (indices.length > 0) {
-      indices.forEach((columnName, index) => {
-        const nextIndex = index + 1;
-        content += `CREATE INDEX ${table.name}_i${nextIndex} ON ${table.name}(${columnName});\n`;
+
+    if (table.foreignKeys.length > 0) {
+      const lastForeignKeyIndex = table.foreignKeys.length - 1;
+      table.foreignKeys.forEach((foreignKey, index) => {
+        content += `${tab}FOREIGN KEY(${foreignKey.columnName}) `;
+        content += `REFERENCES ${foreignKey.parentTableName}(${foreignKey.parentColumnName})`;
+        if (index === lastForeignKeyIndex) {
+          content += "\n";
+        } else {
+          content += ",\n";
+        }
       });
     }
+
+    content += ");\n";
     content += "`;\n\n";
+
+    table.indices.forEach((columnName, index) => {
+      const nextIndex = index + 1;
+      const indexName = `${table.name}_i${nextIndex}`;
+      content += `export const ${table.name}_i${nextIndex}_SQL = "CREATE INDEX ${indexName} ON ${table.name}(${columnName})";\n\n`;
+      queryNames.push(`${indexName}_SQL`);
+    });
   });
 
-  content += `export const CreateTableQueries = [\n${tab}${queryNames.join(
+  content += `export const Schema = [\n${tab}${queryNames.join(
     `,\n${tab}`
   )},\n];\n`;
 

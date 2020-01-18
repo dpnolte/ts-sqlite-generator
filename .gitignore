@@ -1,2 +1,4 @@
 node_modules/
 dist/
+example/__generated__/
+.DS_Store
