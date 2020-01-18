@@ -172,10 +172,13 @@ const addNamedImport = (
   imports: ImportMap,
   targetDir: string
 ) => {
-  const importPath = path.join(
+  let importPath = path.join(
     path.relative(targetDir, path.dirname(declaredType.path)),
     path.parse(declaredType.path).name
   );
+  if (!importPath.startsWith(".")) {
+    importPath = `./${importPath}`;
+  }
 
   if (!imports[importPath]) {
     imports[importPath] = {

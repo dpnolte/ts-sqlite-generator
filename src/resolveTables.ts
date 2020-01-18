@@ -202,14 +202,20 @@ const resolvePrimaryKey = (
     declaredType.children.length > 0 ||
     propertyList.some(property => property.isArray)
   ) {
-    const prefix = `${declaredType.name[0].toLowerCase()}${declaredType.name.substr(
+    const defaultPrimaryKey = `${declaredType.name[0].toLowerCase()}${declaredType.name.substr(
       1
     )}Id`;
-    let primaryKey = prefix;
+
+    const property = properties[defaultPrimaryKey];
+    if (property.type === PropertyType.Number && !property.isOptional) {
+      return defaultPrimaryKey;
+    }
+
+    let primaryKey = defaultPrimaryKey;
     let counter = 1;
     while (properties[primaryKey]) {
       counter += 1;
-      primaryKey = `${prefix}_${counter}`;
+      primaryKey = `${defaultPrimaryKey}_${counter}`;
     }
 
     return primaryKey;
