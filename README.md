@@ -66,9 +66,10 @@ import path from 'path';
 import { generator } from 'ts-sqlite-generator typescript';
 
 generator(
-    [path.join(__dirname, '../src/store/models.ts')],
-    path.join(__dirname, '../realm/__generated__/schema.ts'),
-    path.join(__dirname, '../tsconfig.json')
+  [path.join(__dirname, "models.ts")],
+  path.join(__dirname, "../tsconfig.json"),
+  path.join(__dirname, "__generated__/schema.ts"),
+  path.join(__dirname, "__generated__/helpers.ts")
 );
 ```
 
@@ -76,3 +77,6 @@ generator(
 ```
 yarn ts-node -T scripts/generateSchemas.ts
 ```
+
+# output
+this results in queries being generated (CREATE TABLE, INSERT, UPDATE (todo))

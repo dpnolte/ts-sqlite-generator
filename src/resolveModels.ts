@@ -11,6 +11,7 @@ export enum RelationType {
 export interface Relation {
   type: RelationType;
   child: DeclaredType;
+  propertyName: string;
 }
 
 export enum DeclarationType {
@@ -18,21 +19,24 @@ export enum DeclarationType {
   Composite
 }
 
-export interface InterfaceDeclaration {
+export interface DeclarationTypeMinimal {
   name: string;
-  properties: PropertyMap;
-  children: Relation[];
-  type: DeclarationType.Interface;
   path: string;
 }
 
-export interface CompositeDeclaration {
-  name: string;
-  interfaces: InterfaceDeclaration[];
-  // relations
+export interface DeclarationTypeBase extends DeclarationTypeMinimal {
   children: Relation[];
+  type: DeclarationType;
+}
+
+export interface InterfaceDeclaration extends DeclarationTypeBase {
+  properties: PropertyMap;
+  type: DeclarationType.Interface;
+}
+
+export interface CompositeDeclaration extends DeclarationTypeBase {
+  interfaces: InterfaceDeclaration[];
   type: DeclarationType.Composite;
-  path: string;
 }
 
 export type DeclaredType = CompositeDeclaration | InterfaceDeclaration;
@@ -52,6 +56,7 @@ const isPropertyType = (input: any): input is PropertyType =>
 export interface PropertyDeclaration {
   name: string;
   accessSyntax: string;
+  declaredType: DeclarationTypeMinimal;
   type: PropertyType;
   tags: string[];
   isOptional: boolean;
@@ -195,6 +200,7 @@ const resolveProperties = (
   node.members.forEach(member => {
     if (ts.isPropertySignature(member) && member.type && member.name) {
       const property = resolveProperty(
+        node,
         member,
         member.type,
         member.name,
@@ -210,6 +216,7 @@ const resolveProperties = (
 };
 
 const resolveProperty = (
+  declarationNode: ts.InterfaceDeclaration,
   propertySignature: ts.PropertySignature,
   typeNode: ts.TypeNode,
   nameNode: ts.PropertyName,
@@ -233,6 +240,10 @@ const resolveProperty = (
 
   const propertyDefaultProps = {
     name,
+    declaredType: {
+      name: declarationNode.name.getText(),
+      path: getSourceFilePath(declarationNode)
+    },
     accessSyntax: name,
     isOptional,
     isArray,
@@ -471,7 +482,8 @@ const resolveRelationships = (
 
       children.push({
         type: property.isArray ? RelationType.OneToMany : RelationType.OneToOne,
-        child: declaredType
+        child: declaredType,
+        propertyName: property.name
       });
     } else if (property.type === PropertyType.Composite) {
       const typeAliasDeclaration = findTypeAliasDeclaration(
@@ -490,7 +502,6 @@ const resolveRelationships = (
       }
       const interfaceDeclarations = getInterfaceDeclarationsFromUnion(type);
       const declaredType = createCompositeTypeFromMultipleInterfaces(
-        property,
         typeAliasDeclaration,
         interfaceDeclarations,
         checker
@@ -498,7 +509,8 @@ const resolveRelationships = (
 
       children.push({
         type: property.isArray ? RelationType.OneToMany : RelationType.OneToOne,
-        child: declaredType
+        child: declaredType,
+        propertyName: property.name
       });
     }
   });
@@ -507,13 +519,11 @@ const resolveRelationships = (
 };
 
 const createCompositeTypeFromMultipleInterfaces = (
-  sourceProperty: PropertyDeclaration,
   typeAliasDeclaration: ts.TypeAliasDeclaration,
   interfaceDeclarations: ts.InterfaceDeclaration[],
   checker: ts.TypeChecker
 ): CompositeDeclaration => {
-  const name =
-    sourceProperty.name[0].toUpperCase() + sourceProperty.name.substr(1);
+  const name = typeAliasDeclaration.name.getText();
 
   let properties: PropertyMap = {};
   const interfaces: InterfaceDeclaration[] = [];

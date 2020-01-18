@@ -19,7 +19,7 @@ export interface Tags {
 }
 
 // @see https://www.sqlite.org/datatype3.html
-enum DataType {
+export enum DataType {
   NULL = "NULL",
   INTEGER = "INTEGER",
   NUMERIC = "NUMERIC",
@@ -55,13 +55,18 @@ interface PropertyBasedColumn extends Column {
   property: PropertyDeclaration;
 }
 
+export const isPropertyBasedColumn = (
+  column: Column
+): column is PropertyBasedColumn => column.kind === ColumnKind.BasedOnProperty;
+
 interface Columns {
   [name: string]: Column | PropertyBasedColumn;
 }
 
-enum TableType {
+export enum TableType {
   Default,
-  Array
+  BasicArray,
+  AdvancedArray
 }
 
 interface BaseTable {
@@ -74,17 +79,31 @@ interface BaseTable {
   type: TableType;
 }
 
-interface Table extends BaseTable {
+export interface DefaultTable extends BaseTable {
   type: TableType.Default;
+  arrayTables: string[];
 }
 
-interface ArrayTable extends BaseTable {
+export interface BasicArrayTable extends BaseTable {
   property: PropertyDeclaration;
-  type: TableType.Array;
+  type: TableType.BasicArray;
 }
+export interface AdvancedArrayTable extends BaseTable {
+  type: TableType.AdvancedArray;
+  arrayTables: string[];
+}
+
+export type Table = DefaultTable | BasicArrayTable | AdvancedArrayTable;
+
+export const isBasicArrayTable = (table: Table): table is BasicArrayTable =>
+  table.type === TableType.BasicArray;
+export const isDefaultTable = (table: Table): table is DefaultTable =>
+  table.type === TableType.Default;
+export const isAdvancedArrayTable = (table: Table): table is DefaultTable =>
+  table.type === TableType.AdvancedArray;
 
 export interface TableMap {
-  [tableName: string]: Table | ArrayTable;
+  [tableName: string]: Table;
 }
 
 interface ParentTableEssentials {
@@ -124,9 +143,15 @@ const visitNode = (
     visitNode(relation.child, tags, tables, nextParent);
   });
 
-  const columns = resolveColumns(properties, tags, parent);
+  const columns = resolveColumns(declaredType, properties, tags, parent);
   const foreignKeys = resolveForeignKeys(columns, parent);
   const indices = resolveIndices(properties, tags);
+  const arrayTables = resolveArrayTables(
+    declaredType,
+    properties,
+    tags,
+    primaryKey
+  );
 
   tables[declaredType.name] = {
     name: declaredType.name,
@@ -135,15 +160,12 @@ const visitNode = (
     columns,
     foreignKeys,
     indices,
-    type: TableType.Default
+    type:
+      parent?.relation === RelationType.OneToMany
+        ? TableType.AdvancedArray
+        : TableType.Default,
+    arrayTables: arrayTables.map(t => t.name)
   };
-
-  const arrayTables = resolveArrayTables(
-    declaredType,
-    properties,
-    tags,
-    primaryKey
-  );
 
   arrayTables.forEach(arrayTable => {
     tables[arrayTable.name] = arrayTable;
@@ -196,7 +218,7 @@ const resolvePrimaryKey = (
   return undefined;
 };
 
-const getProperties = (declaredType: DeclaredType): PropertyMap => {
+export const getProperties = (declaredType: DeclaredType): PropertyMap => {
   if (isInterface(declaredType)) {
     return declaredType.properties;
   }
@@ -209,6 +231,7 @@ const getProperties = (declaredType: DeclaredType): PropertyMap => {
 };
 
 const resolveColumns = (
+  declaredType: DeclaredType,
   properties: PropertyMap,
   tags: Tags,
   parent?: ParentTableEssentials
@@ -217,7 +240,7 @@ const resolveColumns = (
 
   Object.values(properties).forEach(property => {
     if (!property.isArray) {
-      const column = resolvePropertyToColumn(property, tags);
+      const column = resolvePropertyToColumn(declaredType, property, tags);
       if (column) {
         columns[column.name] = column;
       }
@@ -236,17 +259,33 @@ const resolveColumns = (
     };
   }
 
+  // array type, add index column
+  if (parent?.relation === RelationType.OneToMany) {
+    if (!columns["arrayIndex"]) {
+      columns["arrayIndex"] = {
+        name: "arrayIndex",
+        type: DataType.INTEGER,
+        primaryKey: false,
+        notNull: true,
+        autoIncrement: false,
+        unique: false,
+        kind: ColumnKind.ArrayIndex
+      };
+    }
+  }
+
   return columns;
 };
 
 const getDefaultColumnProps = (
+  declaredType: DeclaredType,
   property: PropertyDeclaration,
   tags: Tags,
   primaryKey?: string
 ) => {
   return {
     name: property.name,
-    notNull: !property.isOptional,
+    notNull: isInterface(declaredType) && !property.isOptional,
     primaryKey: primaryKey === property.name,
     autoIncrement:
       primaryKey === property.name ||
@@ -256,12 +295,13 @@ const getDefaultColumnProps = (
 };
 
 const resolvePropertyToColumn = (
+  declaredType: DeclaredType,
   property: PropertyDeclaration,
   tags: Tags
 ): PropertyBasedColumn | null => {
   // dont create columns for arrays, we will create a table for it
   const columnDefaultProps: Omit<PropertyBasedColumn, "type"> = {
-    ...getDefaultColumnProps(property, tags),
+    ...getDefaultColumnProps(declaredType, property, tags),
     kind: ColumnKind.BasedOnProperty,
     property
   };
@@ -309,19 +349,20 @@ const resolveArrayTables = (
   properties: PropertyMap,
   tags: Tags,
   primaryKey?: string
-): ArrayTable[] => {
-  const tables: ArrayTable[] = [];
+): BasicArrayTable[] => {
+  const tables: BasicArrayTable[] = [];
   if (!primaryKey) {
     return tables;
   }
   Object.values(properties).forEach(property => {
     if (property.isArray && property.isBasicType) {
       const columnDefaultProps = getDefaultColumnProps(
+        declaredType,
         property,
         tags,
         primaryKey
       );
-      const valueColumn = resolvePropertyToColumn(property, tags);
+      const valueColumn = resolvePropertyToColumn(declaredType, property, tags);
       if (!valueColumn) {
         throw Error(
           `Could not create value column ${property.name} for basic array table ${declaredType.name}`
@@ -364,7 +405,7 @@ const resolveArrayTables = (
           }
         ],
         indices: [],
-        type: TableType.Array,
+        type: TableType.BasicArray,
         property
       });
     }

@@ -16,13 +16,17 @@ const defaultTags: Tags = {
 
 export const generator = (
   rootFilePaths: string[],
-  targetPath: string,
   tsConfigPath: string,
+  targetSchemaPath: string,
+  targetHelpersPath?: string,
   tags?: Tags
 ) => {
   console.log("start");
 
-  fs.ensureDirSync(path.dirname(targetPath));
+  fs.ensureDirSync(path.dirname(targetSchemaPath));
+  if (targetHelpersPath) {
+    fs.ensureDirSync(path.dirname(targetHelpersPath));
+  }
 
   const rootTypes = resolveModels(
     rootFilePaths,
@@ -32,8 +36,11 @@ export const generator = (
 
   const tables = resolveTables(rootTypes, tags ?? defaultTags);
 
-  generateQueries(tables, targetPath);
+  generateQueries(tables, targetSchemaPath, targetHelpersPath);
 
-  console.log("done, output path:");
-  console.log(path.relative(process.cwd(), targetPath));
+  console.log(`done, output path${targetHelpersPath ? "s" : ""}:`);
+  console.log(path.relative(process.cwd(), targetSchemaPath));
+  if (targetHelpersPath) {
+    console.log(path.relative(process.cwd(), targetHelpersPath));
+  }
 };

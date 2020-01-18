@@ -1,7 +1,7 @@
 /**
  * @sqlite_table
  */
-interface Phase {
+export interface Phase {
   name: string;
   phaseId: number;
   articles: Article[];
@@ -9,7 +9,7 @@ interface Phase {
   values: string[];
 }
 
-interface Article {
+export interface Article {
   articleId: number;
   title: string;
   /**
@@ -24,26 +24,26 @@ interface Article {
   compositeTypeArray: AnotherCompositeType[];
 }
 
-enum ArticleType {
+export enum ArticleType {
   A,
   B,
   C
 }
 
-type ArticlePosition = "left" | "center" | "right";
+export type ArticlePosition = "left" | "center" | "right";
 
-interface SubTypeA {
+export interface SubTypeA {
   a: string;
 }
 
-interface SubTypeB {
+export interface SubTypeB {
   b: string;
 }
 
-interface SubTypeC {
-  b: string;
+export interface SubTypeC {
+  c: string;
 }
 
-type CompositeType = SubTypeA | SubTypeB;
+export type CompositeType = SubTypeA | SubTypeB;
 
-type AnotherCompositeType = SubTypeA | SubTypeB | SubTypeC;
+export type AnotherCompositeType = SubTypeA | SubTypeB | SubTypeC;
