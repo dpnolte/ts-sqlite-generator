@@ -11,7 +11,7 @@ import {
 import { QueryExports } from "./generateExports";
 
 import { PropertyType, PropertyDeclaration } from "./resolveModels";
-import { ImportMap } from "./generateImports";
+import { ImportMap, addNamedImport } from "./generateImports";
 
 export const generateDeleteQueries = (
   tables: TableMap,
@@ -23,7 +23,9 @@ export const generateDeleteQueries = (
 
   Object.values(tables).forEach(table => {
     if (table.declaredType.isEntry && !isBasicArrayTable(table)) {
+      addNamedImport(table.declaredType, imports, targetDir);
       const relativePath = path.relative(targetDir, table.declaredType.path);
+
       content += `// delete query based on ${table.declaredType.name} type definitions in ${relativePath}\n`;
       content += generateDeleteQueriesForEntry(table);
       content += generateDeleteQueriesForMultipleEntries(table);

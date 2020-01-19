@@ -41,7 +41,7 @@ export enum ColumnKind {
   PrimaryKeyFromParent
 }
 
-interface Column {
+export interface Column {
   name: string; // same as property name
   type: DataType;
   notNull: boolean;
@@ -51,7 +51,7 @@ interface Column {
   kind: ColumnKind;
 }
 
-interface PropertyBasedColumn extends Column {
+export interface PropertyBasedColumn extends Column {
   kind: ColumnKind.BasedOnProperty;
   property: PropertyDeclaration;
 }
@@ -444,7 +444,9 @@ const resolveArrayTables = (
         ],
         indices: [],
         type: TableType.BasicArray,
-        property
+        property,
+        parentTableName: declaredType.name,
+        parentTablePrimaryKey: primaryKey
       });
     }
   });

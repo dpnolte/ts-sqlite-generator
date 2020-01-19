@@ -37,9 +37,9 @@ export const generateQueries = (
   content += "\n";
   content += insertQueries;
   content += deleteQueries;
+  content += updateQueries;
   content += "\n";
   content += generateExports();
-  // content += updateQueries;
 
   const shouldAppend = !!targetHelpersPath;
 

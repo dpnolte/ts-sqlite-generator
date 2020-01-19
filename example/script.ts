@@ -2,7 +2,7 @@ import fs from "fs-extra";
 import path from "path";
 import sqlite3 from "sqlite3";
 import { generator } from "../src";
-import { Phase, ArticleType } from "./models";
+import { Phase, ArticleType, Article } from "./models";
 
 generator(
   [path.join(__dirname, "models.ts")],
@@ -25,34 +25,33 @@ if (fs.existsSync(dbPath)) {
 
 const db = new sqlite.Database(dbPath);
 
+const article: Article = {
+  articleId: 1,
+  title: "article 1",
+  url: "http://blaat.com",
+  content: "content. strange string. selected='selected'",
+  type: ArticleType.B,
+  position: "left",
+  compositeType: {
+    a: "a"
+  },
+  compositeTypeArray: [
+    {
+      a: "a"
+    },
+    {
+      b: "b"
+    },
+    {
+      c: "c"
+    }
+  ]
+};
 const phase: Phase = {
   name: "phase",
   phaseId: 1,
   values: ["hallo", "hoi", "hey"],
-  articles: [
-    {
-      articleId: 1,
-      title: "article 1",
-      url: "http://blaat.com",
-      content: "content. strange string. selected='selected'",
-      type: ArticleType.B,
-      position: "left",
-      compositeType: {
-        a: "a"
-      },
-      compositeTypeArray: [
-        {
-          a: "a"
-        },
-        {
-          b: "b"
-        },
-        {
-          c: "c"
-        }
-      ]
-    }
-  ]
+  articles: [{ ...article }]
 };
 
 const queries = [];
@@ -60,7 +59,7 @@ queries.push("PRAGMA foreign_keys = ON");
 queries.push(...Queries.insertPhase(phase));
 queries.push(
   ...Queries.insertArticle({
-    ...phase.articles[0],
+    ...article,
     articleId: 2,
     title: "article 2"
   })
@@ -70,26 +69,27 @@ queries.push(
   ...Queries.insertPhase({
     ...phase,
     phaseId: 2,
-    articles: [{ ...phase.articles[0], articleId: 9 }]
+    articles: [{ ...article, articleId: 9 }]
   })
 );
 
 queries.push(...Queries.deletePhase(2));
 
-// queries.push(
-//   ...helpers.getUpdatePhaseQueries(
-//     {
-//       name: "updated phase",
-//       articles: [
-//         {
-//           articleId: 2,
-//           title: "updated article 2"
-//         }
-//       ]
-//     },
-//     1
-//   )
-// );
+queries.push(
+  ...Queries.updatePhase(
+    {
+      name: "updated phase",
+      articles: [
+        {
+          ...article,
+          title: "updated article from 1 to 3",
+          articleId: 3
+        }
+      ]
+    },
+    1
+  )
+);
 
 db.serialize(async () => {
   for (const query of schema.Schema) {
