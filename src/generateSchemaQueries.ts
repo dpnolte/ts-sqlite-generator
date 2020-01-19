@@ -4,8 +4,6 @@ import path from "path";
 import { TableMap } from "./resolveTables";
 
 export const generateSchemaQueries = (tables: TableMap, targetPath: string) => {
-  console.log("> generating schema queries");
-
   let content = "// Auto-generated, do not edit\n\n";
 
   const queryNames: string[] = [];
@@ -55,6 +53,7 @@ export const generateSchemaQueries = (tables: TableMap, targetPath: string) => {
       table.foreignKeys.forEach((foreignKey, index) => {
         content += `${tab}FOREIGN KEY(${foreignKey.columnName}) `;
         content += `REFERENCES ${foreignKey.parentTableName}(${foreignKey.parentColumnName})`;
+        content += " ON DELETE CASCADE";
         if (index === lastForeignKeyIndex) {
           content += "\n";
         } else {
@@ -78,7 +77,5 @@ export const generateSchemaQueries = (tables: TableMap, targetPath: string) => {
     `,\n${tab}`
   )},\n];\n`;
 
-  fs.writeFileSync(targetPath, content);
-
-  console.log("> finished generating schema queries");
+  return content;
 };

@@ -1,5 +1,5 @@
 /**
- * @sqlite_table
+ * @sqlite_entry
  */
 export interface Phase {
   name: string;
@@ -9,6 +9,9 @@ export interface Phase {
   values: string[];
 }
 
+/**
+ * @sqlite_entry
+ */
 export interface Article {
   articleId: number;
   title: string;

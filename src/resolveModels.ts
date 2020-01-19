@@ -1,6 +1,7 @@
 import path from "path";
 import fs from "fs-extra";
 import ts from "typescript";
+import { Tags } from "./resolveTables";
 
 export enum RelationType {
   OneToOne = "OneToOne",
@@ -27,6 +28,7 @@ export interface DeclarationTypeMinimal {
 export interface DeclarationTypeBase extends DeclarationTypeMinimal {
   children: Relation[];
   type: DeclarationType;
+  isEntry: boolean;
 }
 
 export interface InterfaceDeclaration extends DeclarationTypeBase {
@@ -82,7 +84,7 @@ export const isComposite = (
 export const resolveModels = (
   rootFilePaths: string[],
   tsConfigPath: string,
-  modelTag: string
+  tags: Tags
 ) => {
   console.log("> compiling");
 
@@ -109,10 +111,10 @@ export const resolveModels = (
     const relativePath = path.relative(process.cwd(), sourceFile.fileName);
     console.log(`> processing '${relativePath}'`);
     const interfaces: ts.InterfaceDeclaration[] = [];
-    ts.forEachChild(sourceFile, node => visitNode(node, interfaces, modelTag));
+    ts.forEachChild(sourceFile, node => visitNode(node, interfaces, tags));
 
     interfaces.forEach(node => {
-      rootTypes.push(resolveInterface(node, checker));
+      rootTypes.push(resolveInterface(node, checker, tags));
     });
   });
 
@@ -123,16 +125,16 @@ export const resolveModels = (
 const visitNode = (
   node: ts.Node,
   interfaces: ts.InterfaceDeclaration[],
-  modelTag: string
+  tags: Tags
 ) => {
   if (ts.isInterfaceDeclaration(node)) {
-    if (hasDocTag(node, modelTag)) {
+    if (hasDocTag(node, tags.entry)) {
       interfaces.push(node);
     }
   } else if (ts.isModuleDeclaration(node)) {
     console.log("module", node.name);
     // This is a namespace, visit its children
-    ts.forEachChild(node, child => visitNode(child, interfaces, modelTag));
+    ts.forEachChild(node, child => visitNode(child, interfaces, tags));
   }
 };
 
@@ -145,7 +147,8 @@ const hasDocTag = (node: ts.Node, tagName: string): boolean => {
 
 const resolveInterface = (
   node: ts.InterfaceDeclaration,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  tags: Tags
 ): InterfaceDeclaration => {
   const name = node.name.getText();
 
@@ -153,15 +156,17 @@ const resolveInterface = (
   const children = resolveRelationships(
     node.name.getText(),
     checker,
-    properties
+    properties,
+    tags
   );
 
   return {
-    name: node.name.getText(),
+    name,
     properties,
     children,
     type: DeclarationType.Interface,
-    path: getSourceFilePath(node)
+    path: getSourceFilePath(node),
+    isEntry: hasDocTag(node, tags.entry)
   };
 };
 
@@ -464,7 +469,8 @@ const findInterfaceDeclaration = (declarations: ts.Declaration[]) => {
 const resolveRelationships = (
   parentName: string,
   checker: ts.TypeChecker,
-  properties: PropertyMap
+  properties: PropertyMap,
+  tags: Tags
 ) => {
   const children: Relation[] = [];
   Object.values(properties).forEach(property => {
@@ -478,7 +484,11 @@ const resolveRelationships = (
         );
       }
 
-      const declaredType = resolveInterface(interfaceDeclaration, checker);
+      const declaredType = resolveInterface(
+        interfaceDeclaration,
+        checker,
+        tags
+      );
 
       children.push({
         type: property.isArray ? RelationType.OneToMany : RelationType.OneToOne,
@@ -504,7 +514,8 @@ const resolveRelationships = (
       const declaredType = createCompositeTypeFromMultipleInterfaces(
         typeAliasDeclaration,
         interfaceDeclarations,
-        checker
+        checker,
+        tags
       );
 
       children.push({
@@ -521,14 +532,15 @@ const resolveRelationships = (
 const createCompositeTypeFromMultipleInterfaces = (
   typeAliasDeclaration: ts.TypeAliasDeclaration,
   interfaceDeclarations: ts.InterfaceDeclaration[],
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  tags: Tags
 ): CompositeDeclaration => {
   const name = typeAliasDeclaration.name.getText();
 
   let properties: PropertyMap = {};
   const interfaces: InterfaceDeclaration[] = [];
   interfaceDeclarations.forEach(decl => {
-    const interfaceDecl = resolveInterface(decl, checker);
+    const interfaceDecl = resolveInterface(decl, checker, tags);
     properties = {
       ...properties,
       ...interfaceDecl.properties
@@ -536,14 +548,15 @@ const createCompositeTypeFromMultipleInterfaces = (
     interfaces.push(interfaceDecl);
   });
 
-  const children = resolveRelationships(name, checker, properties);
+  const children = resolveRelationships(name, checker, properties, tags);
 
   return {
     name,
     interfaces,
     children,
     type: DeclarationType.Composite,
-    path: getSourceFilePath(typeAliasDeclaration)
+    path: getSourceFilePath(typeAliasDeclaration),
+    isEntry: false
   };
 };
 

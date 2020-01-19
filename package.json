@@ -1,7 +1,7 @@
 {
   "name": "ts-sqlite-generator",
-  "version": "0.0.2",
-  "description": "Generate realm js schema from typescript interfaces",
+  "version": "0.0.4",
+  "description": "Generate sqlite SQL queries from typescript interfaces",
   "source": "src/index.ts",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

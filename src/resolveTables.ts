@@ -5,11 +5,12 @@ import {
   PropertyType,
   PropertyMap,
   PropertyDeclaration,
-  RelationType
+  RelationType,
+  isComposite
 } from "./resolveModels";
 
 export interface Tags {
-  model: string;
+  entry: string;
   primaryKey: string;
   index: string;
   unique: string;
@@ -77,6 +78,8 @@ interface BaseTable {
   foreignKeys: ForeignKey[];
   indices: string[]; // column names
   type: TableType;
+  parentTableName?: string;
+  parentTablePrimaryKey?: string;
 }
 
 export interface DefaultTable extends BaseTable {
@@ -99,8 +102,9 @@ export const isBasicArrayTable = (table: Table): table is BasicArrayTable =>
   table.type === TableType.BasicArray;
 export const isDefaultTable = (table: Table): table is DefaultTable =>
   table.type === TableType.Default;
-export const isAdvancedArrayTable = (table: Table): table is DefaultTable =>
-  table.type === TableType.AdvancedArray;
+export const isAdvancedArrayTable = (
+  table: Table
+): table is AdvancedArrayTable => table.type === TableType.AdvancedArray;
 
 export interface TableMap {
   [tableName: string]: Table;
@@ -111,6 +115,10 @@ interface ParentTableEssentials {
   primaryKey?: string;
   relation: RelationType;
 }
+
+export const COL_ARRAY_INDEX = "arrayIndex";
+export const COL_ARRAY_VALUE = "value";
+export const COL_ARRAY_VALUES = "values";
 
 export const resolveTables = (
   rootTypes: InterfaceDeclaration[],
@@ -130,6 +138,27 @@ const visitNode = (
   tables: TableMap,
   parent?: ParentTableEssentials
 ) => {
+  // check if table is already processed
+  if (tables[declaredType.name]) {
+    // it already exists, check if declared type is an entry
+    const existingTable = tables[declaredType.name];
+    if (existingTable.declaredType.isEntry || declaredType.isEntry) {
+      // since it is an entry, make any FK / array index nullable
+      existingTable.foreignKeys.forEach(fk => {
+        const column = existingTable.columns[fk.columnName];
+        column.notNull = false;
+        if (isPropertyBasedColumn(column)) {
+          column.property.isOptional = true;
+        }
+      });
+      const arrayIndexCol = existingTable.columns[COL_ARRAY_INDEX];
+      if (arrayIndexCol) {
+        arrayIndexCol.notNull = false;
+      }
+    }
+    return; // table already resolved one way or another
+  }
+
   const properties = getProperties(declaredType);
   const primaryKey = resolvePrimaryKey(declaredType, properties, tags);
 
@@ -164,7 +193,9 @@ const visitNode = (
       parent?.relation === RelationType.OneToMany
         ? TableType.AdvancedArray
         : TableType.Default,
-    arrayTables: arrayTables.map(t => t.name)
+    arrayTables: arrayTables.map(t => t.name),
+    parentTableName: parent?.name,
+    parentTablePrimaryKey: parent?.primaryKey
   };
 
   arrayTables.forEach(arrayTable => {
@@ -197,17 +228,18 @@ const resolvePrimaryKey = (
   if (propertiesEndingWithId.length === 1) {
     return propertiesEndingWithId[0].name;
   }
-  // need to have primary key when it is referenced by children
-  if (
-    declaredType.children.length > 0 ||
-    propertyList.some(property => property.isArray)
-  ) {
+  // always have primary key unless composite type (where we don't have a primary key if no id shared among all types)
+  if (!isComposite(declaredType)) {
     const defaultPrimaryKey = `${declaredType.name[0].toLowerCase()}${declaredType.name.substr(
       1
     )}Id`;
 
     const property = properties[defaultPrimaryKey];
-    if (property.type === PropertyType.Number && !property.isOptional) {
+    if (
+      property &&
+      property.type === PropertyType.Number &&
+      !property.isOptional
+    ) {
       return defaultPrimaryKey;
     }
 
@@ -267,9 +299,9 @@ const resolveColumns = (
 
   // array type, add index column
   if (parent?.relation === RelationType.OneToMany) {
-    if (!columns["arrayIndex"]) {
-      columns["arrayIndex"] = {
-        name: "arrayIndex",
+    if (!columns[COL_ARRAY_INDEX]) {
+      columns[COL_ARRAY_INDEX] = {
+        name: COL_ARRAY_INDEX,
         type: DataType.INTEGER,
         primaryKey: false,
         notNull: true,
@@ -381,9 +413,9 @@ const resolveArrayTables = (
         property.name.substr(1);
 
       const columns: Columns = {
-        arrayIndex: {
+        [COL_ARRAY_INDEX]: {
           ...columnDefaultProps,
-          name: "arrayIndex",
+          name: COL_ARRAY_INDEX,
           type: DataType.INTEGER,
           kind: ColumnKind.ArrayIndex
         },

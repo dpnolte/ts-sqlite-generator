@@ -1,5 +1,4 @@
 import path from "path";
-import fs from "fs-extra";
 
 import {
   TableMap,
@@ -10,38 +9,28 @@ import {
   isBasicArrayTable,
   isDefaultTable,
   Table,
-  isAdvancedArrayTable
+  isAdvancedArrayTable,
+  COL_ARRAY_INDEX,
+  COL_ARRAY_VALUE
 } from "./resolveTables";
-import {
-  isComposite,
-  DeclarationTypeMinimal,
-  PropertyMap
-} from "./resolveModels";
-
-interface Import {
-  path: string;
-  defaultImport?: string;
-  namedImports: Set<string>;
-}
-
-interface ImportMap {
-  [path: string]: Import;
-}
+import { isComposite, PropertyMap } from "./resolveModels";
+import { addNamedImport, ImportMap } from "./generateImports";
+import { QueryExports } from "./generateExports";
 
 interface AdditionalArgs {
   name: string;
   type: string;
   column: string;
   arrayTableProperty: boolean;
+  isOptional: boolean;
 }
 
 export const generateInsertQueries = (
   tables: TableMap,
   targetPath: string,
-  append = true
+  imports: ImportMap
 ) => {
   let body = "";
-  const imports: ImportMap = {};
   const tab = "  ";
   const targetDir = path.dirname(targetPath);
 
@@ -53,19 +42,24 @@ export const generateInsertQueries = (
     const isCompositeType = isComposite(table.declaredType);
     const additionalArguments = getAdditionalArgs(table, tables);
 
-    body += `// helper based on ${table.declaredType.name} type definitions in ${relativePath}\n`;
+    const methodName = getInsertMethodName(table);
+    if (table.declaredType.isEntry) {
+      QueryExports.add(methodName);
+    }
+
+    body += `// insert query based on ${table.declaredType.name} type definitions in ${relativePath}\n`;
 
     if (additionalArguments.length > 0) {
-      body += `export const ${getMethodName(table)} = (\n`;
+      body += `const ${methodName} = (\n`;
       if (!isBasicArrayTable(table)) {
         body += `${tab}input: ${table.declaredType.name},\n`;
       }
       body += `${tab}${additionalArguments
-        .map(arg => `${arg.name}: ${arg.type}`)
+        .map(arg => `${arg.name}${arg.isOptional ? "?" : ""}: ${arg.type}`)
         .join(`,\n${tab}`)}\n`;
       body += `): string[] => {\n`;
     } else {
-      body += `export const ${getMethodName(table)} = (`;
+      body += `const ${methodName} = (`;
       if (isDefaultTable(table)) {
         body += `input: ${table.declaredType.name}`;
       }
@@ -86,12 +80,23 @@ export const generateInsertQueries = (
 
     body += getArrayTableQueriesStatements(table, isCompositeType, tables, tab);
 
-    additionalArguments.forEach(additionalArg => {
-      body += `${tab}columns.push('${additionalArg.column}');\n`;
-      if (additionalArg.type === "string") {
-        body += `${tab}values.push(\`'\${${additionalArg.name}.toString()}'\`);\n`;
+    additionalArguments.forEach(arg => {
+      body += `${tab}columns.push('${arg.column}');\n`;
+
+      let prefix = tab;
+      if (arg.isOptional) {
+        body += `${tab}if(typeof ${arg.name} !== 'undefined') {\n`;
+        prefix += tab;
+      }
+      if (arg.type === "string") {
+        body += `${prefix}values.push(\`'\${${arg.name}.toString().replace(/\'/g,"''")}'\`);\n`;
       } else {
-        body += `${tab}values.push(${additionalArg.name}.toString());\n`;
+        body += `${prefix}values.push(${arg.name}.toString());\n`;
+      }
+      if (arg.isOptional) {
+        body += `${tab}} else {\n`;
+        body += `${tab.repeat(2)}values.push('NULL');\n`;
+        body += `${tab}}\n`;
       }
     });
 
@@ -112,13 +117,13 @@ export const generateInsertQueries = (
 
           let value: string;
           if (column.type === DataType.TEXT) {
-            value = `\`'\${${objRef}.${property.accessSyntax}}'\``;
+            value = `\`'\${${objRef}.${property.accessSyntax}.replace(/\'/g,"''")}'\``;
           } else {
             value = `${objRef}.${property.accessSyntax}.toString()`;
           }
 
           if (property.isOptional || isCompositeType) {
-            body += `${tab}if (${objRef}.${property.accessSyntax}) {\n`;
+            body += `${tab}if (typeof ${objRef}.${property.accessSyntax} !== 'undefined') {\n`;
             body += `${tab.repeat(2)}columns.push('${column.name}');\n`;
             body += `${tab.repeat(2)}values.push(${value});\n`;
             body += `${tab}}\n`;
@@ -144,49 +149,7 @@ export const generateInsertQueries = (
     body += `};\n\n`;
   });
 
-  let content = "// Auto-generated, do not edit!\n";
-  Object.values(imports).forEach(importStmt => {
-    content += "import ";
-    if (importStmt.defaultImport) {
-      content += `${importStmt.defaultImport} `;
-    }
-    const namedImports = Array.from(importStmt.namedImports);
-    if (namedImports.length > 0) {
-      content += `{ ${namedImports.join(", ")} } `;
-    }
-    content += `from '${importStmt.path}';\n`;
-  });
-
-  content += "\n";
-  content += body;
-
-  if (append) {
-    fs.appendFileSync(targetPath, content);
-  } else {
-    fs.writeFileSync(targetPath, content);
-  }
-};
-
-const addNamedImport = (
-  declaredType: DeclarationTypeMinimal,
-  imports: ImportMap,
-  targetDir: string
-) => {
-  let importPath = path.join(
-    path.relative(targetDir, path.dirname(declaredType.path)),
-    path.parse(declaredType.path).name
-  );
-  if (!importPath.startsWith(".")) {
-    importPath = `./${importPath}`;
-  }
-
-  if (!imports[importPath]) {
-    imports[importPath] = {
-      path: importPath,
-      namedImports: new Set()
-    };
-  }
-  imports[importPath].namedImports.add(declaredType.name);
+  return body;
 };
 
 const getAdditionalArgs = (table: Table, tables: TableMap) => {
@@ -201,34 +164,42 @@ const getAdditionalArgs = (table: Table, tables: TableMap) => {
       name: property.name,
       type: property.type,
       column: column.name,
-      arrayTableProperty: false
+      arrayTableProperty: false,
+      isOptional: !column.notNull
     });
   });
   if (isBasicArrayTable(table)) {
     const { property } = table;
     additionalArguments.push({
-      name: "value",
-      column: "value",
+      name: COL_ARRAY_VALUE,
+      column: COL_ARRAY_VALUE,
       type: property.type,
-      arrayTableProperty: true
+      arrayTableProperty: true,
+      isOptional: false
     });
     additionalArguments.push({
-      name: "arrayIndex",
-      column: "arrayIndex",
+      name: COL_ARRAY_INDEX,
+      column: COL_ARRAY_INDEX,
       type: "number",
-      arrayTableProperty: true
+      arrayTableProperty: true,
+      isOptional: false
     });
   }
   if (isAdvancedArrayTable(table)) {
     additionalArguments.push({
-      name: "arrayIndex",
-      column: "arrayIndex",
+      name: COL_ARRAY_INDEX,
+      column: COL_ARRAY_INDEX,
       type: "number",
-      arrayTableProperty: true
+      arrayTableProperty: true,
+      isOptional: table.declaredType.isEntry
     });
   }
 
-  return additionalArguments;
+  return additionalArguments.sort((a, b) => {
+    if (!a.isOptional && b.isOptional) return -1;
+    if (a.isOptional && !b.isOptional) return 1;
+    return 0;
+  });
 };
 
 const getChildrenQueriesStatements = (
@@ -261,14 +232,13 @@ const getChildrenQueriesStatements = (
           assignStmt += ", index";
         }
         assignStmt += `) => {\n`;
-        assignStmt += `${prefix + tab.repeat(2)}list.push(...${getMethodName(
-          childTable
-        )}(`;
+        assignStmt += `${prefix +
+          tab.repeat(2)}list.push(...${getInsertMethodName(childTable)}(`;
         assignStmt += `child`;
         if (childArgs.length > 0) {
           assignStmt += `, ${childArgs
             .map(ca => {
-              if (ca.arrayTableProperty && ca.name === "arrayIndex") {
+              if (ca.arrayTableProperty && ca.name === COL_ARRAY_INDEX) {
                 return "index";
               }
               return `${objRef}.${ca.name}`;
@@ -281,7 +251,7 @@ const getChildrenQueriesStatements = (
         assignStmt += `${prefix});\n`;
       } else {
         assignStmt = `${prefix}queries.push(\n`;
-        assignStmt += `${prefix + tab}...${getMethodName(
+        assignStmt += `${prefix + tab}...${getInsertMethodName(
           childTable
         )}(${objRef}.${property.accessSyntax}`;
         if (childArgs.length > 0) {
@@ -333,7 +303,9 @@ const getArrayTableQueriesStatements = (
       }
       result += `${prefix}${objRef}.${property.accessSyntax}.forEach((value, index) => {\n`;
       result += `${prefix + tab}queries.push(\n`;
-      result += `${prefix + tab.repeat(2)}...${getMethodName(arrayTable)}(`;
+      result += `${prefix + tab.repeat(2)}...${getInsertMethodName(
+        arrayTable
+      )}(`;
       result += `${objRef}.${additionalArgs[0].name}, value, index)\n`;
       result += `${prefix + tab});\n`;
       result += `${tab}});\n`;
@@ -347,4 +319,5 @@ const getArrayTableQueriesStatements = (
   return result;
 };
 
-const getMethodName = (table: Table) => `getInsert${table.name}Queries`;
+export const getInsertMethodName = (table: Table) =>
+  `insert${table.name}Queries`;

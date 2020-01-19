@@ -5,7 +5,7 @@ import { resolveModels } from "./resolveModels";
 import { Tags, resolveTables } from "./resolveTables";
 
 const defaultTags: Tags = {
-  model: "sqlite_table",
+  entry: "sqlite_entry",
   primaryKey: "sqlite_primary_key",
   index: "sqlite_index",
   unique: "sqlite_uniq",
@@ -31,7 +31,7 @@ export const generator = (
   const rootTypes = resolveModels(
     rootFilePaths,
     tsConfigPath,
-    tags?.model ?? defaultTags.model
+    tags ?? defaultTags
   );
 
   const tables = resolveTables(rootTypes, tags ?? defaultTags);

@@ -34,7 +34,7 @@ const phase: Phase = {
       articleId: 1,
       title: "article 1",
       url: "http://blaat.com",
-      content: "content",
+      content: "content. strange string. selected='selected'",
       type: ArticleType.B,
       position: "left",
       compositeType: {
@@ -55,7 +55,29 @@ const phase: Phase = {
   ]
 };
 
-const insertQueries = helpers.getInsertPhaseQueries(phase);
+const queries = helpers.getInsertPhaseQueries(phase);
+queries.push(
+  ...helpers.getInsertArticleQueries({
+    ...phase.articles[0],
+    articleId: 2,
+    title: "article 2"
+  })
+);
+
+queries.push(
+  ...helpers.getUpdatePhaseQueries(
+    {
+      name: "updated phase",
+      articles: [
+        {
+          articleId: 2,
+          title: "updated article 2"
+        }
+      ]
+    },
+    1
+  )
+);
 
 db.serialize(async () => {
   for (const query of schema.Schema) {
@@ -65,7 +87,7 @@ db.serialize(async () => {
       }
     });
   }
-  for (const query of insertQueries) {
+  for (const query of queries) {
     db.exec(query, err => {
       if (err) {
         console.log("error", err, query);

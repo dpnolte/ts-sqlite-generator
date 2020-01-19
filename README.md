@@ -10,11 +10,12 @@ See example folder.
 Clone this repo and run 'yarn example'
 
 # prepare interface
-have at least one interface with doc tag @sqlite_table.
+have at least one interface with doc tag @sqlite_entry.
+This tag indicates that this interface should be able to be inserted without any referencing foreign keys.
 For example in src/store/models.ts:
 ```
 /**
- * @sqlite_table.
+ * @sqlite_entry.
  */
 interface Phase {
   name: string;

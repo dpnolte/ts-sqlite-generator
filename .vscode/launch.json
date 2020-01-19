@@ -9,7 +9,7 @@
       "type": "node",
       "request": "launch",
       "args": ["${workspaceRoot}/example/script.ts"],
-      "runtimeArgs": ["-r", "ts-node/register"],
+      "runtimeArgs": ["-r", "ts-node/register/transpile-only"],
       "cwd": "${workspaceRoot}",
       "protocol": "inspector",
       "internalConsoleOptions": "openOnSessionStart",
