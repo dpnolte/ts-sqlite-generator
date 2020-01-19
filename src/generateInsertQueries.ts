@@ -70,15 +70,6 @@ export const generateInsertQueries = (
     body += `${tab}const values: string[] = [];\n\n`;
 
     const properties = getProperties(table.declaredType);
-    body += getChildrenQueriesStatements(
-      table,
-      properties,
-      isCompositeType,
-      tables,
-      tab
-    );
-
-    body += getArrayTableQueriesStatements(table, isCompositeType, tables, tab);
 
     additionalArguments.forEach(arg => {
       body += `${tab}columns.push('${arg.column}');\n`;
@@ -144,6 +135,16 @@ export const generateInsertQueries = (
     body += `${tab}query += values.join(', ');\n`;
     body += `${tab}query += ');';\n`;
     body += `${tab}queries.push(query);\n\n`;
+
+    body += getChildrenQueriesStatements(
+      table,
+      properties,
+      isCompositeType,
+      tables,
+      tab
+    );
+
+    body += getArrayTableQueriesStatements(table, isCompositeType, tables, tab);
 
     body += `${tab}return queries;\n`;
     body += `};\n\n`;
@@ -319,5 +320,4 @@ const getArrayTableQueriesStatements = (
   return result;
 };
 
-export const getInsertMethodName = (table: Table) =>
-  `insert${table.name}Queries`;
+export const getInsertMethodName = (table: Table) => `insert${table.name}`;

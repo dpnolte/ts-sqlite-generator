@@ -14,7 +14,7 @@ generator(
 // eslint-disable-next-line import/no-dynamic-require, @typescript-eslint/no-var-requires
 const schema = require(path.join(__dirname, "__generated__/schema.ts"));
 // eslint-disable-next-line import/no-dynamic-require, @typescript-eslint/no-var-requires
-const helpers = require(path.join(__dirname, "__generated__/helpers.ts"));
+const { Queries } = require(path.join(__dirname, "__generated__/helpers.ts"));
 
 const sqlite = sqlite3.verbose();
 const dbPath = path.join(__dirname, "__generated__/test.db");
@@ -55,9 +55,11 @@ const phase: Phase = {
   ]
 };
 
-const queries = helpers.getInsertPhaseQueries(phase);
+const queries = [];
+queries.push("PRAGMA foreign_keys = ON");
+queries.push(...Queries.insertPhase(phase));
 queries.push(
-  ...helpers.getInsertArticleQueries({
+  ...Queries.insertArticle({
     ...phase.articles[0],
     articleId: 2,
     title: "article 2"
@@ -65,19 +67,29 @@ queries.push(
 );
 
 queries.push(
-  ...helpers.getUpdatePhaseQueries(
-    {
-      name: "updated phase",
-      articles: [
-        {
-          articleId: 2,
-          title: "updated article 2"
-        }
-      ]
-    },
-    1
-  )
+  ...Queries.insertPhase({
+    ...phase,
+    phaseId: 2,
+    articles: [{ ...phase.articles[0], articleId: 9 }]
+  })
 );
+
+queries.push(...Queries.deletePhase(2));
+
+// queries.push(
+//   ...helpers.getUpdatePhaseQueries(
+//     {
+//       name: "updated phase",
+//       articles: [
+//         {
+//           articleId: 2,
+//           title: "updated article 2"
+//         }
+//       ]
+//     },
+//     1
+//   )
+// );
 
 db.serialize(async () => {
   for (const query of schema.Schema) {
