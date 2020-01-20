@@ -1,17 +1,6 @@
 /**
  * @sqlite_entry
  */
-export interface Phase {
-  name: string;
-  phaseId: number;
-  articles: Article[];
-  optionalFieldsWork?: boolean;
-  values: string[];
-}
-
-/**
- * @sqlite_entry
- */
 export interface Article {
   articleId: number;
   title: string;
@@ -25,6 +14,17 @@ export interface Article {
   position: ArticlePosition;
   compositeType: CompositeType;
   compositeTypeArray: AnotherCompositeType[];
+}
+
+/**
+ * @sqlite_entry
+ */
+export interface Phase {
+  name: string;
+  phaseId: number;
+  articles: Article[];
+  optionalFieldsWork?: boolean;
+  values: string[];
 }
 
 export enum ArticleType {

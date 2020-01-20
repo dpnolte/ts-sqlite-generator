@@ -140,22 +140,7 @@ const visitNode = (
 ) => {
   // check if table is already processed
   if (tables[declaredType.name]) {
-    // it already exists, check if declared type is an entry
-    const existingTable = tables[declaredType.name];
-    if (existingTable.declaredType.isEntry || declaredType.isEntry) {
-      // since it is an entry, make any FK / array index nullable
-      existingTable.foreignKeys.forEach(fk => {
-        const column = existingTable.columns[fk.columnName];
-        column.notNull = false;
-        if (isPropertyBasedColumn(column)) {
-          column.property.isOptional = true;
-        }
-      });
-      const arrayIndexCol = existingTable.columns[COL_ARRAY_INDEX];
-      if (arrayIndexCol) {
-        arrayIndexCol.notNull = false;
-      }
-    }
+    resolveExistingTable(declaredType, tables, parent);
     return; // table already resolved one way or another
   }
 
@@ -284,6 +269,16 @@ const resolveColumns = (
       }
     }
   });
+
+  addColumnsForRelationship(columns, parent);
+
+  return columns;
+};
+
+const addColumnsForRelationship = (
+  columns: Columns,
+  parent?: ParentTableEssentials
+) => {
   if (parent?.primaryKey && !columns[parent.primaryKey]) {
     // create column to reference parent
     columns[parent.primaryKey] = {
@@ -311,8 +306,6 @@ const resolveColumns = (
       };
     }
   }
-
-  return columns;
 };
 
 const getDefaultColumnProps = (
@@ -480,4 +473,45 @@ const resolveIndices = (properties: PropertyMap, tags: Tags): string[] => {
     }
     return indices;
   }, [] as string[]);
+};
+
+const resolveExistingTable = (
+  declaredType: DeclaredType,
+  tables: TableMap,
+  parent?: ParentTableEssentials
+) => {
+  // it already exists, check if declared type is an entry
+  const existingTable = tables[declaredType.name];
+  if (existingTable.declaredType.isEntry || declaredType.isEntry) {
+    // ensure that we have fk  and any array index
+    addColumnsForRelationship(existingTable.columns, parent);
+    // ensure that we parent info
+    existingTable.parentTableName =
+      existingTable.parentTableName ?? parent?.name;
+    existingTable.parentTablePrimaryKey =
+      existingTable.parentTablePrimaryKey ?? parent?.primaryKey;
+    existingTable.foreignKeys = [
+      ...existingTable.foreignKeys,
+      ...resolveForeignKeys(existingTable.columns, parent)
+    ];
+    if (
+      isDefaultTable(existingTable) &&
+      parent?.relation === RelationType.OneToMany
+    ) {
+      (existingTable as Table).type = TableType.AdvancedArray;
+    }
+
+    // since existing table is an entry, add nullable FK / array index
+    existingTable.foreignKeys.forEach(fk => {
+      const column = existingTable.columns[fk.columnName];
+      column.notNull = false;
+      if (isPropertyBasedColumn(column)) {
+        column.property.isOptional = true;
+      }
+    });
+    const arrayIndexCol = existingTable.columns[COL_ARRAY_INDEX];
+    if (arrayIndexCol) {
+      arrayIndexCol.notNull = false;
+    }
+  }
 };

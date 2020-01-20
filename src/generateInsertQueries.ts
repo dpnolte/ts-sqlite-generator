@@ -7,311 +7,496 @@ import {
   getProperties,
   BasicArrayTable,
   isBasicArrayTable,
-  isDefaultTable,
   Table,
   isAdvancedArrayTable,
   COL_ARRAY_INDEX,
-  COL_ARRAY_VALUE
+  COL_ARRAY_VALUE,
+  DefaultTable,
+  AdvancedArrayTable
 } from "./resolveTables";
-import { isComposite, PropertyMap } from "./resolveModels";
+import {
+  isComposite,
+  DeclarationTypeMinimal,
+  RelationType
+} from "./resolveModels";
 import { addNamedImport, ImportMap } from "./generateImports";
 import { QueryExports } from "./generateExports";
 
-interface AdditionalArgs {
-  name: string;
-  type: string;
-  column: string;
-  arrayTableProperty: boolean;
-  isOptional: boolean;
-}
+const tab = "  ";
 
+/**
+ * Scenarios:
+ * - A) Table is entry.. user needs to be able to update with primary key.
+ *      when entry, table is updated based on primary key
+ * - B) Table is a child only
+ *      when one-to-one child, table is updated based on primary key if available.
+ *      if no primary key available or one-to-many, all children will be deleted and replaced by what is entered
+ * - C) Table is both an entry and a child to antoher entry -> create two methods (one when updated as entry, another as child)
+ * - D) Table is a basic array table. All items will be deleted and replaced by what is entered if any value is provided.
+ */
 export const generateInsertQueries = (
   tables: TableMap,
   targetPath: string,
   imports: ImportMap
 ) => {
   let body = "";
-  const tab = "  ";
   const targetDir = path.dirname(targetPath);
+
+  const addDeclaredTypeAsImport = (declaredType: DeclarationTypeMinimal) =>
+    addNamedImport(declaredType, imports, targetDir);
 
   Object.values(tables).forEach(table => {
     // todo: check if declared type can be exported
     const relativePath = path.relative(targetDir, table.declaredType.path);
     addNamedImport(table.declaredType, imports, targetDir);
 
-    const isCompositeType = isComposite(table.declaredType);
-    const additionalArguments = getAdditionalArgs(table, tables);
-
-    const methodName = getInsertMethodName(table);
-    if (table.declaredType.isEntry) {
-      QueryExports.add(methodName);
-    }
-
     body += `// insert query based on ${table.declaredType.name} type definitions in ${relativePath}\n`;
 
-    if (additionalArguments.length > 0) {
-      body += `const ${methodName} = (\n`;
-      if (!isBasicArrayTable(table)) {
-        body += `${tab}input: ${table.declaredType.name},\n`;
-      }
-      body += `${tab}${additionalArguments
-        .map(arg => `${arg.name}${arg.isOptional ? "?" : ""}: ${arg.type}`)
-        .join(`,\n${tab}`)}\n`;
-      body += `): string[] => {\n`;
+    // D - basic array table
+    if (isBasicArrayTable(table)) {
+      body += generateInsertBasicArrayQuery(table, tables);
     } else {
-      body += `const ${methodName} = (`;
-      if (isDefaultTable(table)) {
-        body += `input: ${table.declaredType.name}`;
+      addNamedImport(table.declaredType, imports, targetDir);
+
+      if (table.declaredType.isEntry) {
+        // A + C
+        body += generateInsertEntryQuery(
+          table,
+          tables,
+          addDeclaredTypeAsImport
+        );
+        body += generateInsertMultipleEntryQuery(table);
       }
-      body += `): string[] => {\n`;
-    }
-    body += `${tab}const queries: string[] = [];\n`;
-    body += `${tab}const columns: string[] = [];\n`;
-    body += `${tab}const values: string[] = [];\n\n`;
 
-    const properties = getProperties(table.declaredType);
+      if (table.parentTableName) {
+        // B - child only (one to many)
+        if (isAdvancedArrayTable(table)) {
+          addNamedImport(table.declaredType, imports, targetDir);
 
-    additionalArguments.forEach(arg => {
-      body += `${tab}columns.push('${arg.column}');\n`;
-
-      let prefix = tab;
-      if (arg.isOptional) {
-        body += `${tab}if(typeof ${arg.name} !== 'undefined') {\n`;
-        prefix += tab;
-      }
-      if (arg.type === "string") {
-        body += `${prefix}values.push(\`'\${${arg.name}.toString().replace(/\'/g,"''")}'\`);\n`;
-      } else {
-        body += `${prefix}values.push(${arg.name}.toString());\n`;
-      }
-      if (arg.isOptional) {
-        body += `${tab}} else {\n`;
-        body += `${tab.repeat(2)}values.push('NULL');\n`;
-        body += `${tab}}\n`;
-      }
-    });
-
-    if (!isBasicArrayTable(table)) {
-      const columnList = Object.values(table.columns);
-      columnList.forEach(column => {
-        // other columns will be passed as arguments
-        if (isPropertyBasedColumn(column)) {
-          const { property } = column;
-
-          const objRef = isCompositeType
-            ? `(input as ${property.declaredType.name})`
-            : "input";
-
-          if (isCompositeType) {
-            addNamedImport(property.declaredType, imports, targetDir);
-          }
-
-          let value: string;
-          if (column.type === DataType.TEXT) {
-            value = `\`'\${${objRef}.${property.accessSyntax}.replace(/\'/g,"''")}'\``;
-          } else {
-            value = `${objRef}.${property.accessSyntax}.toString()`;
-          }
-
-          if (property.isOptional || isCompositeType) {
-            body += `${tab}if (typeof ${objRef}.${property.accessSyntax} !== 'undefined') {\n`;
-            body += `${tab.repeat(2)}columns.push('${column.name}');\n`;
-            body += `${tab.repeat(2)}values.push(${value});\n`;
-            body += `${tab}}\n`;
-          } else {
-            body += `${tab}columns.push('${column.name}');\n`;
-            body += `${tab}values.push(${value});\n`;
-          }
+          body += generateInsertOneToManyChildQuery(
+            table,
+            tables,
+            addDeclaredTypeAsImport
+          );
+          // B - child only (one to one)
+        } else {
+          body += generateInsertOneToOneChildQuery(
+            table,
+            tables,
+            addDeclaredTypeAsImport
+          );
         }
-      });
+      }
     }
-    body += `${tab}if (columns.length === 0 || values.length === 0) {\n`;
-    body += `${tab.repeat(2)}return [];\n`;
-    body += `${tab}}\n\n`;
-
-    body += `${tab}let query = 'INSERT INTO ${table.name}(';\n`;
-    body += `${tab}query += columns.join(', ');\n`;
-    body += `${tab}query += ') VALUES(';\n`;
-    body += `${tab}query += values.join(', ');\n`;
-    body += `${tab}query += ');';\n`;
-    body += `${tab}queries.push(query);\n\n`;
-
-    body += getChildrenQueriesStatements(
-      table,
-      properties,
-      isCompositeType,
-      tables,
-      tab
-    );
-
-    body += getArrayTableQueriesStatements(table, isCompositeType, tables, tab);
-
-    body += `${tab}return queries;\n`;
-    body += `};\n\n`;
   });
 
   return body;
 };
 
-const getAdditionalArgs = (table: Table, tables: TableMap) => {
-  const additionalArguments: AdditionalArgs[] = [];
-  table.foreignKeys.forEach(foreignKey => {
-    const column = table.columns[foreignKey.columnName];
-    const parent = tables[foreignKey.parentTableName].declaredType;
-    const parentProperties = getProperties(parent);
-    const property = parentProperties[column.name];
-
-    additionalArguments.push({
-      name: property.name,
-      type: property.type,
-      column: column.name,
-      arrayTableProperty: false,
-      isOptional: !column.notNull
-    });
-  });
-  if (isBasicArrayTable(table)) {
-    const { property } = table;
-    additionalArguments.push({
-      name: COL_ARRAY_VALUE,
-      column: COL_ARRAY_VALUE,
-      type: property.type,
-      arrayTableProperty: true,
-      isOptional: false
-    });
-    additionalArguments.push({
-      name: COL_ARRAY_INDEX,
-      column: COL_ARRAY_INDEX,
-      type: "number",
-      arrayTableProperty: true,
-      isOptional: false
-    });
-  }
-  if (isAdvancedArrayTable(table)) {
-    additionalArguments.push({
-      name: COL_ARRAY_INDEX,
-      column: COL_ARRAY_INDEX,
-      type: "number",
-      arrayTableProperty: true,
-      isOptional: table.declaredType.isEntry
-    });
+const generateInsertBasicArrayQuery = (
+  table: BasicArrayTable,
+  tables: TableMap
+) => {
+  const { parentTablePrimaryKey, parentTableName } = table;
+  const foreignKey = table.foreignKeys.find(
+    fk => fk.columnName === parentTablePrimaryKey
+  );
+  if (!parentTableName || !parentTablePrimaryKey || !foreignKey) {
+    throw Error(
+      `Could not resolve parent primary key/foreign key for '${table.name}' as basic array table`
+    );
   }
 
-  return additionalArguments.sort((a, b) => {
-    if (!a.isOptional && b.isOptional) return -1;
-    if (a.isOptional && !b.isOptional) return 1;
-    return 0;
-  });
+  const parentTable = tables[parentTableName];
+  const parentColumn = parentTable.columns[foreignKey.parentColumnName];
+
+  const pushes = getColumnValuePushes([
+    {
+      columnName: parentTablePrimaryKey,
+      value: `\${${parentTablePrimaryKey}}`,
+      type: parentColumn.type
+    },
+    {
+      columnName: COL_ARRAY_VALUE,
+      value: `\${${COL_ARRAY_VALUE}}`,
+      type: table.columns[COL_ARRAY_VALUE].type
+    },
+    {
+      columnName: COL_ARRAY_INDEX,
+      value: `\${${COL_ARRAY_INDEX}}`,
+      type: DataType.INTEGER
+    }
+  ]);
+
+  const method = `const ${getInsertMethodNameFromChild(table)} = (
+    ${parentTablePrimaryKey}: number,
+    ${COL_ARRAY_VALUE}: ${table.property.type},
+  ${COL_ARRAY_INDEX}: number,
+): string[] => {
+  const queries: string[] = [];
+  const columns: string[] = [];
+  const values: string[] = [];
+
+${pushes}
+  if (columns.length === 0 || values.length === 0) {
+    return [];
+  }
+
+  let query = "INSERT INTO ${table.name}(";
+  query += columns.join(", ");
+  query += ") VALUES(";
+  query += values.join(", ");
+  query += ");";
+  queries.push(query);
+
+  return queries;
+};
+`;
+  return method;
 };
 
-const getChildrenQueriesStatements = (
-  table: Table,
-  properties: PropertyMap,
-  isCompositeType: boolean,
+const generateInsertEntryQuery = (
+  table: DefaultTable | AdvancedArrayTable,
   tables: TableMap,
-  tab: string
+  addDeclaredTypeAsImport: (declaredType: DeclarationTypeMinimal) => void
 ) => {
-  let result = "";
-  if (isBasicArrayTable(table)) {
-    return result;
+  const methodName = getInsertMethodName(table);
+  QueryExports.add(methodName);
+
+  const pushes = getColumnValuePushesFromColumns(
+    table,
+    addDeclaredTypeAsImport
+  );
+
+  const method = `const ${methodName} = (
+    input: ${table.declaredType.name},
+  ): string[] => {
+  const queries: string[] = [];
+  const columns: string[] = [];
+  const values: string[] = [];
+
+${pushes}
+  if (columns.length === 0 || values.length === 0) {
+    return [];
   }
-  table.declaredType.children.forEach(child => {
-    const property = properties[child.propertyName];
-    const objRef = isCompositeType
-      ? `(input as ${property.declaredType.name})`
-      : "input";
 
-    const childTable = tables[child.child.name];
-    const childArgs = getAdditionalArgs(childTable, tables);
+  let query = "INSERT INTO ${table.name}(";
+  query += columns.join(", ");
+  query += ") VALUES(";
+  query += values.join(", ");
+  query += ");";
+  queries.push(query);
 
-    const getAssignmentStatement = (prefix: string) => {
-      let assignStmt: string;
-      if (property.isArray) {
-        assignStmt = `${prefix}queries.push(\n`;
-        assignStmt += `${prefix + tab}...${objRef}.${property.accessSyntax}`;
-        assignStmt += `.reduce((list, child`;
-        if (isAdvancedArrayTable(childTable)) {
-          assignStmt += ", index";
-        }
-        assignStmt += `) => {\n`;
-        assignStmt += `${prefix +
-          tab.repeat(2)}list.push(...${getInsertMethodName(childTable)}(`;
-        assignStmt += `child`;
-        if (childArgs.length > 0) {
-          assignStmt += `, ${childArgs
-            .map(ca => {
-              if (ca.arrayTableProperty && ca.name === COL_ARRAY_INDEX) {
-                return "index";
-              }
-              return `${objRef}.${ca.name}`;
-            })
-            .join(", ")}`;
-        }
-        assignStmt += `));\n`;
-        assignStmt += `${prefix + tab.repeat(2)}return list;\n`;
-        assignStmt += `${prefix + tab}}, [] as string[])\n`;
-        assignStmt += `${prefix});\n`;
-      } else {
-        assignStmt = `${prefix}queries.push(\n`;
-        assignStmt += `${prefix + tab}...${getInsertMethodName(
-          childTable
-        )}(${objRef}.${property.accessSyntax}`;
-        if (childArgs.length > 0) {
-          assignStmt += `, ${childArgs
-            .map(ca => `${objRef}.${ca.name}`)
-            .join(", ")}`;
-        }
-        assignStmt += `)\n${prefix});\n`;
-      }
-      return assignStmt;
-    };
+${addChildrenQueries(table, tables, addDeclaredTypeAsImport)}
+${addBasicArrayChildrenQueries(table, tables, addDeclaredTypeAsImport)}
 
-    if (property.isOptional || isCompositeType) {
-      result += `${tab}if(${objRef}.${property.accessSyntax}) {\n`;
-      result += getAssignmentStatement(tab.repeat(2));
-      result += `${tab}}\n`;
-    } else {
-      result += getAssignmentStatement(tab);
-    }
+  return queries;
+  };
+`;
+  return method;
+};
+
+const generateInsertMultipleEntryQuery = (
+  table: AdvancedArrayTable | DefaultTable
+) => {
+  const methodName = getInsertMultipleMethodName(table);
+  const entryMethodName = getInsertMethodName(table);
+  QueryExports.add(methodName);
+
+  const method = `export const ${methodName} = (
+  inputs: ${table.declaredType.name}[],
+): string[] => {
+  const queries: string[] = [];
+  inputs.forEach(input => {
+    queries.push(...${entryMethodName}(input));
   });
 
-  result += "\n";
+  return queries;
+};
+`;
+
+  return method;
+};
+
+const generateInsertOneToManyChildQuery = (
+  table: AdvancedArrayTable,
+  tables: TableMap,
+  addDeclaredTypeAsImport: (declaredType: DeclarationTypeMinimal) => void
+) => {
+  const { parentTablePrimaryKey, parentTableName } = table;
+  const foreignKey = table.foreignKeys.find(
+    fk => fk.parentColumnName === parentTablePrimaryKey
+  );
+  if (!parentTablePrimaryKey || !parentTableName || !foreignKey) {
+    throw Error(
+      `could not resolve parent primary key/foreign key for one-to-many table '${table.name}'`
+    );
+  }
+
+  const parentTable = tables[parentTableName];
+  const parentColumn = parentTable.columns[foreignKey.parentColumnName];
+
+  let pushes = getColumnValuePushes([
+    {
+      columnName: parentTablePrimaryKey,
+      value: `\${${parentTablePrimaryKey}}`,
+      type: parentColumn.type
+    },
+    {
+      columnName: COL_ARRAY_INDEX,
+      value: `\${${COL_ARRAY_INDEX}}`,
+      type: DataType.INTEGER
+    }
+  ]);
+
+  pushes += getColumnValuePushesFromColumns(table, addDeclaredTypeAsImport);
+
+  const method = `const ${getInsertMethodNameFromChild(table)} = (
+    input: ${table.declaredType.name},
+    ${parentTablePrimaryKey}: number,
+    ${COL_ARRAY_INDEX}: number,
+  ): string[] => {
+  const queries: string[] = [];
+  const columns: string[] = [];
+  const values: string[] = [];
+
+${pushes}
+  if (columns.length === 0 || values.length === 0) {
+    return [];
+  }
+
+  let query = "INSERT INTO ${table.name}(";
+  query += columns.join(", ");
+  query += ") VALUES(";
+  query += values.join(", ");
+  query += ");";
+  queries.push(query);
+
+${addChildrenQueries(table, tables, addDeclaredTypeAsImport) ?? ""}
+${addBasicArrayChildrenQueries(table, tables, addDeclaredTypeAsImport) ?? ""}
+
+  return queries;
+  };
+`;
+  return method;
+};
+
+const generateInsertOneToOneChildQuery = (
+  table: DefaultTable,
+  tables: TableMap,
+  addDeclaredTypeAsImport: (declaredType: DeclarationTypeMinimal) => void
+) => {
+  const { parentTablePrimaryKey, parentTableName } = table;
+  const foreignKey = table.foreignKeys.find(
+    fk => fk.parentColumnName === parentTablePrimaryKey
+  );
+  if (!parentTablePrimaryKey || !parentTableName || !foreignKey) {
+    throw Error(
+      `could not resolve parent primary key/foreign key for one-to-many table '${table.name}'`
+    );
+  }
+
+  const parentTable = tables[parentTableName];
+  const parentColumn = parentTable.columns[foreignKey.parentColumnName];
+
+  let pushes = getColumnValuePushes([
+    {
+      columnName: parentTablePrimaryKey,
+      value: `\${${parentTablePrimaryKey}}`,
+      type: parentColumn.type
+    }
+  ]);
+
+  pushes += getColumnValuePushesFromColumns(table, addDeclaredTypeAsImport);
+
+  const method = `const ${getInsertMethodNameFromChild(table)} = (
+    input: ${table.declaredType.name},
+    ${parentTablePrimaryKey}: number,
+  ): string[] => {
+  const queries: string[] = [];
+  const columns: string[] = [];
+  const values: string[] = [];
+
+${pushes}
+  if (columns.length === 0 || values.length === 0) {
+    return [];
+  }
+
+  let query = "INSERT INTO ${table.name}(";
+  query += columns.join(", ");
+  query += ") VALUES(";
+  query += values.join(", ");
+  query += ");";
+  queries.push(query);
+
+${addChildrenQueries(table, tables, addDeclaredTypeAsImport) ?? ""}
+${addBasicArrayChildrenQueries(table, tables, addDeclaredTypeAsImport) ?? ""}
+
+  return queries;
+  };
+`;
+  return method;
+};
+
+interface ColumnValueItem {
+  columnName: string;
+  value: string;
+  type: DataType;
+}
+const getColumnValuePushes = (items: ColumnValueItem[]) => {
+  let pushes = "";
+  items.forEach(item => {
+    const value =
+      item.type === DataType.TEXT ? `\`'${item.value}'\`` : `\`${item.value}\``;
+    pushes += `  columns.push('${item.columnName}');
+  values.push(${value});
+`;
+  });
+
+  return pushes;
+};
+
+const getColumnValuePushesFromColumns = (
+  table: DefaultTable | AdvancedArrayTable,
+  addDeclaredTypeAsImport: (declaredType: DeclarationTypeMinimal) => void
+): string => {
+  const columnList = Object.values(table.columns);
+  let pushes = "";
+  columnList.forEach(column => {
+    // other columns will be passed as arguments
+    if (isPropertyBasedColumn(column)) {
+      const { property } = column;
+
+      const objRef = isComposite(table.declaredType)
+        ? `(input as ${property.declaredType.name})`
+        : "input";
+
+      const selector = `${objRef}.${property.accessSyntax}`;
+
+      if (isComposite(table.declaredType)) {
+        addDeclaredTypeAsImport(property.declaredType);
+      }
+
+      let value: string;
+      if (column.type === DataType.TEXT) {
+        value = `\`'\${${selector}.replace(/\'/g,"''")}'\``;
+      } else {
+        value = `${selector}.toString()`;
+      }
+
+      if (property.isOptional || isComposite(table.declaredType)) {
+        pushes += `  if(typeof ${selector} !== 'undefined') {
+    columns.push('${column.name}');
+    values.push(${value});
+  }
+`;
+      } else {
+        pushes += `  if(typeof ${selector} !== 'undefined') {
+    columns.push('${column.name}');
+    values.push(${value});
+  }
+`;
+      }
+    }
+  });
+  return pushes;
+};
+
+const addChildrenQueries = (
+  table: DefaultTable | AdvancedArrayTable,
+  tables: TableMap,
+  addDeclaredTypeAsImport: (declaredType: DeclarationTypeMinimal) => void
+) => {
+  const { primaryKey } = table;
+  if (!primaryKey) {
+    return "";
+  }
+
+  let result = "";
+  table.declaredType.children.forEach(relation => {
+    const childTable = tables[relation.child.name];
+    const property = getProperties(table.declaredType)[relation.propertyName];
+    let objRef = "input";
+    if (isComposite(table.declaredType)) {
+      addDeclaredTypeAsImport(property.declaredType);
+      objRef = `(input as ${property.declaredType.name})`;
+    }
+    const selector = `${objRef}.${property.accessSyntax}`;
+    const pk = `${objRef}.${primaryKey}`;
+    const method = getInsertMethodNameFromChild(childTable);
+
+    if (property.isOptional) {
+      if (relation.type === RelationType.OneToOne) {
+        result += `  if (${selector}) {
+    queries.push(...${method}(${selector}, ${pk}));
+  }
+`;
+      } else if (relation.type === RelationType.OneToMany) {
+        result += `  if (${selector}) {
+    queries.push(...${selector}.reduce((list, child, index) => {
+      list.push(...${method}(child, ${pk}, index));
+      return list;
+    }, [] as string[]));
+  }
+`;
+      }
+      // non-optional
+    } else {
+      if (relation.type === RelationType.OneToOne) {
+        result += `  queries.push(...${method}(${selector}, ${pk}));
+`;
+      } else if (relation.type === RelationType.OneToMany) {
+        result += `  queries.push(...${selector}.reduce((list, child, index) => {
+    list.push(...${method}(child, ${pk}, index));
+    return list;
+  }, [] as string[]));
+`;
+      }
+    }
+  });
 
   return result;
 };
 
-const getArrayTableQueriesStatements = (
+const addBasicArrayChildrenQueries = (
   table: Table,
-  isCompositeType: boolean,
   tables: TableMap,
-  tab: string
+  addDeclaredTypeAsImport: (declaredType: DeclarationTypeMinimal) => void
 ) => {
   let result = "";
+  if (!table.primaryKey) return result;
 
   if (!isBasicArrayTable(table) && table.arrayTables.length > 0) {
     table.arrayTables.forEach(arrayTableName => {
       const arrayTable = tables[arrayTableName] as BasicArrayTable;
       const { property } = arrayTable;
-      const objRef = isCompositeType
+      const objRef = isComposite(table.declaredType)
         ? `(input as ${property.declaredType.name})`
         : "input";
-
-      const additionalArgs = getAdditionalArgs(arrayTable, tables);
-
-      let prefix = tab;
-      if (property.isOptional || isCompositeType) {
-        result += `${tab}if (${objRef}.${property.accessSyntax}) {\n`;
-        prefix += tab;
+      if (isComposite(table.declaredType)) {
+        addDeclaredTypeAsImport(table.declaredType);
       }
-      result += `${prefix}${objRef}.${property.accessSyntax}.forEach((value, index) => {\n`;
-      result += `${prefix + tab}queries.push(\n`;
-      result += `${prefix + tab.repeat(2)}...${getInsertMethodName(
-        arrayTable
-      )}(`;
-      result += `${objRef}.${additionalArgs[0].name}, value, index)\n`;
-      result += `${prefix + tab});\n`;
-      result += `${tab}});\n`;
-      if (property.isOptional || isCompositeType) {
-        result += `${tab}}\n`;
+
+      const selector = `${objRef}.${property.accessSyntax}`;
+      const pk = `${objRef}.${table.primaryKey}`;
+      const method = getInsertMethodNameFromChild(arrayTable);
+
+      if (property.isOptional) {
+        result += `  if (${selector}) {
+      queries.push(...${selector}.reduce((list, child, index) => {
+        list.push(...${method}(${pk}, child, index));
+        return list;
+      }, [] as string[]));
+    }
+  `;
+
+        // non-optional
+      } else {
+        result += `  queries.push(...${selector}.reduce((list, child, index) => {
+      list.push(...${method}(${pk}, child, index));
+      return list;
+    }, [] as string[]));
+  `;
       }
     });
     result += "\n";
@@ -321,3 +506,6 @@ const getArrayTableQueriesStatements = (
 };
 
 export const getInsertMethodName = (table: Table) => `insert${table.name}`;
+const getInsertMultipleMethodName = (table: Table) => `insert${table.name}s`;
+export const getInsertMethodNameFromChild = (table: Table) =>
+  `insert${table.name}AsChild`;

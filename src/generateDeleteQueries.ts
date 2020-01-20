@@ -29,6 +29,7 @@ export const generateDeleteQueries = (
       content += `// delete query based on ${table.declaredType.name} type definitions in ${relativePath}\n`;
       content += generateDeleteQueriesForEntry(table);
       content += generateDeleteQueriesForMultipleEntries(table);
+      content += generateDeleteQueriesForAll(table);
     }
   });
   return content;
@@ -84,6 +85,20 @@ const generateDeleteQueriesForMultipleEntries = (
   return method;
 };
 
+const generateDeleteQueriesForAll = (
+  table: DefaultTable | AdvancedArrayTable
+) => {
+  const methodName = getMethodNameForAll(table);
+  QueryExports.add(methodName);
+
+  let method = `const ${methodName} = (): string[] => {
+
+  return ["DELETE FROM ${table.name}"];
+}
+`;
+  return method;
+};
+
 export const wrapWithQuotesIfString = (
   property: PropertyDeclaration,
   value: string
@@ -100,3 +115,4 @@ export const wrapWithQuotesIfString = (
 
 const getMethodName = (table: Table) => `delete${table.name}`;
 const getMethodNameForMultiple = (table: Table) => `delete${table.name}s`;
+const getMethodNameForAll = (table: Table) => `deleteAll${table.name}s`;

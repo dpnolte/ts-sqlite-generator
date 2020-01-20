@@ -4,7 +4,6 @@ import {
   TableMap,
   isPropertyBasedColumn,
   DataType,
-  getProperties,
   BasicArrayTable,
   isBasicArrayTable,
   Table,
@@ -16,15 +15,10 @@ import {
   AdvancedArrayTable,
   DefaultTable
 } from "./resolveTables";
-import {
-  isComposite,
-  PropertyMap,
-  RelationType,
-  Relation
-} from "./resolveModels";
+import { Relation } from "./resolveModels";
 import { addNamedImport, ImportMap } from "./generateImports";
 import { QueryExports } from "./generateExports";
-import { getInsertMethodName } from "./generateInsertQueries";
+import { getInsertMethodNameFromChild } from "./generateInsertQueries";
 
 interface AdditionalArgs {
   name: string;
@@ -70,6 +64,7 @@ export const generateUpdateQueries = (
       if (table.declaredType.isEntry) {
         // A + C
         body += generateUpdateEntryQuery(table, tables);
+        body += generateUpdateMultipleEntryQuery(table);
       }
 
       if (table.parentTableName) {
@@ -184,6 +179,35 @@ ${arrayTableGetters}
   return method;
 };
 
+const generateUpdateMultipleEntryQuery = (
+  table: AdvancedArrayTable | DefaultTable
+) => {
+  const primaryKey = table.primaryKey;
+  if (!primaryKey) {
+    throw Error(
+      `could not resolve table entry ${table.name} without primary key`
+    );
+  }
+
+  const methodName = getMethodNameForMultiple(table);
+  const entryMethodName = getMethodName(table);
+  QueryExports.add(methodName);
+
+  const method = `export const ${methodName} = (
+  inputs: { input: Omit<Partial<${table.declaredType.name}>, '${primaryKey}'>, ${primaryKey}: number }[],
+): string[] => {
+  const queries: string[] = [];
+  inputs.forEach(inputAndId => {
+    queries.push(...${entryMethodName}(inputAndId.input, inputAndId.${primaryKey}));
+  });
+
+  return queries;
+};
+`;
+
+  return method;
+};
+
 const generateUpdateOneToManyChildQuery = (
   table: AdvancedArrayTable,
   tables: TableMap
@@ -232,7 +256,7 @@ const generateUpdateOneToManyChildQuery = (
 
   inputs.forEach((input, index) => {
     queries.push(
-      ...${getInsertMethodName(table)}(
+      ...${getInsertMethodNameFromChild(table)}(
         input,
         ${columnName},
         index,
@@ -296,7 +320,7 @@ const generateUpdateOneToOneChildQuery = (
   }
 
   queries.push(
-    ...${getInsertMethodName(table)}(
+    ...${getInsertMethodNameFromChild(table)}(
       input,
       ${columnName},
     )
@@ -410,6 +434,7 @@ const addBasicArrayChildrenQueries = (
   tables: TableMap
 ) => {
   let result = "";
+  if (!table.primaryKey) return result;
 
   if (!isBasicArrayTable(table) && table.arrayTables.length > 0) {
     table.arrayTables.forEach(arrayTableName => {
@@ -419,15 +444,16 @@ const addBasicArrayChildrenQueries = (
         ? `(input as ${property.declaredType.name})`
         : "input";
 
+      const selector = `${objRef}.${property.accessSyntax}`;
       let prefix = tab;
 
-      result += `${tab}if (${objRef}.${property.accessSyntax}) {\n`;
+      result += `${tab}if (${selector}) {\n`;
       prefix += tab;
 
       result += `${prefix}queries.push(\n`;
       result += `${prefix + tab}...${getMethodNameForChild(
         arrayTable
-      )}(${objRef}.${property.accessSyntax}, ${table.primaryKey}),\n`;
+      )}(${selector}, ${table.primaryKey}),\n`;
       result += `${prefix});\n`;
 
       result += `${tab}}\n`;
@@ -447,4 +473,5 @@ export const wrapWithQuotesIfText = (column: Column, value: string) => {
 };
 
 const getMethodName = (table: Table) => `update${table.name}`;
+const getMethodNameForMultiple = (table: Table) => `update${table.name}s`;
 const getMethodNameForChild = (table: Table) => `update${table.name}AsChild`;
