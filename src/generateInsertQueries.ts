@@ -17,7 +17,8 @@ import {
 import {
   isComposite,
   DeclarationTypeMinimal,
-  RelationType
+  RelationType,
+  PropertyType
 } from "./resolveModels";
 import { addNamedImport, ImportMap } from "./generateImports";
 import { QueryExports } from "./generateExports";
@@ -378,8 +379,18 @@ const getColumnValuePushesFromColumns = (
       }
 
       let value: string;
-      if (column.type === DataType.TEXT) {
+      if (
+        isPropertyBasedColumn(column) &&
+        column.property.type === PropertyType.Date
+      ) {
+        value = `\`'\${${selector}.toISOString().replace(/\'/g,"''")}'\``;
+      } else if (column.type === DataType.TEXT) {
         value = `\`'\${${selector}.replace(/\'/g,"''")}'\``;
+      } else if (
+        isPropertyBasedColumn(column) &&
+        column.property.type === PropertyType.Boolean
+      ) {
+        value = `${selector} === true ? '1' : '0'`;
       } else {
         value = `${selector}.toString()`;
       }

@@ -114,6 +114,7 @@ interface ParentTableEssentials {
   name: string;
   primaryKey?: string;
   relation: RelationType;
+  isComposite: boolean;
 }
 
 export const COL_ARRAY_INDEX = "arrayIndex";
@@ -138,6 +139,11 @@ const visitNode = (
   tables: TableMap,
   parent?: ParentTableEssentials
 ) => {
+  if (parent?.isComposite) {
+    throw Error(
+      `Children for composite types are not supported. Parent: ${parent.name}, Child: ${declaredType.name}`
+    );
+  }
   // check if table is already processed
   if (tables[declaredType.name]) {
     resolveExistingTable(declaredType, tables, parent);
@@ -152,14 +158,15 @@ const visitNode = (
     const nextParent: ParentTableEssentials = {
       primaryKey,
       name: declaredType.name,
-      relation: relation.type
+      relation: relation.type,
+      isComposite: isComposite(declaredType)
     };
     visitNode(relation.child, tags, tables, nextParent);
   });
 
   const columns = resolveColumns(declaredType, properties, tags, parent);
   const foreignKeys = resolveForeignKeys(columns, parent);
-  const indices = resolveIndices(properties, tags);
+  const indices = resolveIndices(properties, foreignKeys, tags);
   const arrayTables = resolveArrayTables(
     declaredType,
     properties,
@@ -466,13 +473,22 @@ const resolveForeignKeys = (
   return foreignKeys;
 };
 
-const resolveIndices = (properties: PropertyMap, tags: Tags): string[] => {
-  return Object.values(properties).reduce((indices, property) => {
+const resolveIndices = (
+  properties: PropertyMap,
+  foreignKeys: ForeignKey[],
+  tags: Tags
+): string[] => {
+  const indices: string[] = [];
+  Object.values(properties).forEach(property => {
     if (property.tags.some(tag => tag === tags.index)) {
       indices.push(property.name);
     }
-    return indices;
-  }, [] as string[]);
+  });
+  foreignKeys.forEach(foreignKey => {
+    indices.push(foreignKey.columnName);
+  });
+
+  return indices;
 };
 
 const resolveExistingTable = (

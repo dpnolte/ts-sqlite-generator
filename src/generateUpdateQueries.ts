@@ -15,7 +15,7 @@ import {
   AdvancedArrayTable,
   DefaultTable
 } from "./resolveTables";
-import { Relation } from "./resolveModels";
+import { Relation, PropertyType } from "./resolveModels";
 import { addNamedImport, ImportMap } from "./generateImports";
 import { QueryExports } from "./generateExports";
 import { getInsertMethodNameFromChild } from "./generateInsertQueries";
@@ -350,11 +350,7 @@ const getColumnToValueArray = (
       array += `${tab}if (typeof input.${property.accessSyntax} !== 'undefined') {\n`;
       array +=
         tab.repeat(2) +
-        getColumnToValuePush(
-          column.name,
-          `input.${property.accessSyntax}`,
-          column.type === DataType.TEXT
-        );
+        getColumnToValuePush(column, `input.${property.accessSyntax}`);
       array += `${tab}}\n`;
     }
   });
@@ -365,27 +361,36 @@ const getColumnToValueArray = (
   return array;
 };
 
-const getColumnToValuePush = (
-  column: string,
-  accessSyntax: string,
-  isString: boolean
-) => {
+const getColumnToValuePush = (column: Column, accessSyntax: string) => {
+  const isDate =
+    isPropertyBasedColumn(column) && column.property.type === PropertyType.Date;
   return `columnToValue.push(\`${getColumnToValue(
-    column,
+    column.name,
     accessSyntax,
-    isString
+    !isDate && column.type === DataType.TEXT,
+    isPropertyBasedColumn(column) &&
+      column.property.type === PropertyType.Boolean,
+    isDate
   )}\`);\n`;
 };
 
 const getColumnToValue = (
-  column: string,
+  columnName: string,
   accessSyntax: string,
-  isString: boolean
+  isString: boolean,
+  isBoolean: boolean,
+  isDate: boolean
 ) => {
   if (isString) {
-    return `${column}='\${${accessSyntax}.replace(/\'/g,"''")}'`;
+    return `${columnName}='\${${accessSyntax}.replace(/\'/g,"''")}'`;
   }
-  return `${column}=\${${accessSyntax}}`;
+  if (isBoolean) {
+    return `${columnName}='\${${accessSyntax} === true ? '1' : '0'}'`;
+  }
+  if (isDate) {
+    return `${columnName}='\${${accessSyntax}.toISOString().replace(/\'/g,"''")}'`;
+  }
+  return `${columnName}=\${${accessSyntax}}`;
 };
 
 interface ChildrenGetter {

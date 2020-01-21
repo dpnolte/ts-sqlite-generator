@@ -32,6 +32,8 @@ const article: Article = {
   content: "content. strange string. selected='selected'",
   type: ArticleType.B,
   position: "left",
+  postDate: new Date(),
+  flag: true,
   compositeType: {
     a: "a"
   },
@@ -83,7 +85,9 @@ queries.push(
         {
           ...article,
           title: "updated article from 1 to 3",
-          articleId: 3
+          articleId: 3,
+          flag: false,
+          postDate: new Date()
         }
       ]
     },

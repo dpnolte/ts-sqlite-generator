@@ -14,6 +14,8 @@ export interface Article {
   position: ArticlePosition;
   compositeType: CompositeType;
   compositeTypeArray: AnotherCompositeType[];
+  postDate: Date;
+  flag: boolean;
 }
 
 /**
