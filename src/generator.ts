@@ -33,6 +33,7 @@ export const generateQueries = (
   const deleteQueries = generateDeleteQueries(tables, helpersPath, imports);
 
   let content = "// Auto-generated, do not edit!\n";
+  content += "/* eslint-disable */\n";
   content += generateImports(imports);
   content += "\n";
   content += insertQueries;

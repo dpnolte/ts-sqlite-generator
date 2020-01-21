@@ -4,7 +4,8 @@ import path from "path";
 import { TableMap } from "./resolveTables";
 
 export const generateSchemaQueries = (tables: TableMap, targetPath: string) => {
-  let content = "// Auto-generated, do not edit\n\n";
+  let content = "// Auto-generated, do not edit\n";
+  content += "/* eslint-disable */\n\n";
 
   const queryNames: string[] = [];
   const tab = "  ";
