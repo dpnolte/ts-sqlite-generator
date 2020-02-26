@@ -162,6 +162,8 @@ const generateUpdateEntryQuery = (
   ${primaryKey}: number,
 ): string[] => {
   const queries: string[] = [];
+  // disable foreigns keys so that we can delete old child tables with foreign keys
+  queries.push('PRAGMA foreign_keys = OFF;');
   ${getColumnToValueArray(table, [primaryKey])}
 
   const query = \`UPDATE ${
@@ -172,6 +174,7 @@ const generateUpdateEntryQuery = (
 ${childrenGetters}
 ${arrayTableGetters}
 
+  queries.push('PRAGMA foreign_keys = ON;');
   return queries;
 };
 `;

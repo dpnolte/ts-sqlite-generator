@@ -1,6 +1,6 @@
 {
   "name": "ts-sqlite-generator",
-  "version": "0.0.12",
+  "version": "0.0.13",
   "description": "Generate sqlite SQL queries from typescript interfaces",
   "source": "src/index.ts",
   "main": "dist/index.js",
