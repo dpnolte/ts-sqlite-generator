@@ -35,25 +35,25 @@ const article: Article = {
   postDate: new Date(),
   flag: true,
   compositeType: {
-    a: "a"
+    a: "a",
   },
   compositeTypeArray: [
     {
-      a: "a"
+      a: "a",
     },
     {
-      b: "b"
+      b: "b",
     },
     {
-      c: "c"
-    }
-  ]
+      c: "c",
+    },
+  ],
 };
 const phase: Phase = {
   name: "phase",
   phaseId: 1,
   values: ["hallo", "hoi", "hey"],
-  articles: [{ ...article }]
+  articles: [{ ...article }],
 };
 
 const queries = [];
@@ -63,7 +63,7 @@ queries.push(
   ...Queries.insertArticle({
     ...article,
     articleId: 2,
-    title: "article 2"
+    title: "article 2",
   })
 );
 
@@ -71,25 +71,43 @@ queries.push(
   ...Queries.insertPhase({
     ...phase,
     phaseId: 2,
-    articles: [{ ...article, articleId: 9 }]
+    articles: [{ ...article, articleId: 9 }],
   })
 );
 
 queries.push(...Queries.deletePhase(2));
 
+// queries.push(
+//   ...Queries.updatePhase(
+//     {
+//       name: "updated phase",
+//       articles: [
+//         {
+//           ...article,
+//           title: "updated article id from 1 to 3",
+//           articleId: 3,
+//           flag: false,
+//           postDate: new Date(),
+//         },
+//       ],
+//     },
+//     1
+//   )
+// );
+
 queries.push(
-  ...Queries.updatePhase(
+  ...Queries.replacePhase(
     {
-      name: "updated phase",
+      name: "replaced phase 1",
       articles: [
         {
           ...article,
-          title: "updated article from 1 to 3",
-          articleId: 3,
+          title: "replaced article id from 1 to 2",
+          articleId: 2,
           flag: false,
-          postDate: new Date()
-        }
-      ]
+          postDate: new Date(),
+        },
+      ],
     },
     1
   )
@@ -97,14 +115,14 @@ queries.push(
 
 db.serialize(async () => {
   for (const query of schema.Schema) {
-    db.exec(query, err => {
+    db.exec(query, (err) => {
       if (err) {
         console.log("error", err, query);
       }
     });
   }
   for (const query of queries) {
-    db.exec(query, err => {
+    db.exec(query, (err) => {
       if (err) {
         console.log("error", err, query);
       }

@@ -1,13 +1,13 @@
-import path from "path";
 import fs from "fs-extra";
 
 import { TableMap } from "./resolveTables";
 import { generateSchemaQueries } from "./generateSchemaQueries";
 import { generateInsertQueries } from "./generateInsertQueries";
-import { generateUpdateQueries } from "./generateUpdateQueries";
+import { generateReplaceQueries } from "./generateReplaceQueries";
 import { ImportMap, generateImports } from "./generateImports";
 import { generateDeleteQueries } from "./generateDeleteQueries";
 import { generateExports } from "./generateExports";
+import { generateUpdateQueries } from "./generateUpdateQueries";
 
 export const generateQueries = (
   tables: TableMap,
@@ -29,7 +29,9 @@ export const generateQueries = (
   const helpersPath = targetHelpersPath ?? targetSchemaPath;
 
   const insertQueries = generateInsertQueries(tables, helpersPath, imports);
-  const updateQueries = generateUpdateQueries(tables, helpersPath, imports);
+  const replaceQueries = generateReplaceQueries(tables, helpersPath, imports);
+  // update not yet supported
+  // const updateQueries = generateUpdateQueries(tables, helpersPath, imports);
   const deleteQueries = generateDeleteQueries(tables, helpersPath, imports);
 
   let content = "// Auto-generated, do not edit!\n";
@@ -38,7 +40,9 @@ export const generateQueries = (
   content += "\n";
   content += insertQueries;
   content += deleteQueries;
-  content += updateQueries;
+  content += replaceQueries;
+  // update not yet supported
+  // content += updateQueries;
   content += "\n";
   content += generateExports();
 

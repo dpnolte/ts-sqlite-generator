@@ -12,13 +12,13 @@ import {
   COL_ARRAY_INDEX,
   COL_ARRAY_VALUE,
   DefaultTable,
-  AdvancedArrayTable
+  AdvancedArrayTable,
 } from "./resolveTables";
 import {
   isComposite,
   DeclarationTypeMinimal,
   RelationType,
-  PropertyType
+  PropertyType,
 } from "./resolveModels";
 import { addNamedImport, ImportMap } from "./generateImports";
 import { QueryExports } from "./generateExports";
@@ -46,7 +46,7 @@ export const generateInsertQueries = (
   const addDeclaredTypeAsImport = (declaredType: DeclarationTypeMinimal) =>
     addNamedImport(declaredType, imports, targetDir);
 
-  Object.values(tables).forEach(table => {
+  Object.values(tables).forEach((table) => {
     // todo: check if declared type can be exported
     const relativePath = path.relative(targetDir, table.declaredType.path);
     addNamedImport(table.declaredType, imports, targetDir);
@@ -100,7 +100,7 @@ const generateInsertBasicArrayQuery = (
 ) => {
   const { parentTablePrimaryKey, parentTableName } = table;
   const foreignKey = table.foreignKeys.find(
-    fk => fk.columnName === parentTablePrimaryKey
+    (fk) => fk.columnName === parentTablePrimaryKey
   );
   if (!parentTableName || !parentTablePrimaryKey || !foreignKey) {
     throw Error(
@@ -115,24 +115,25 @@ const generateInsertBasicArrayQuery = (
     {
       columnName: parentTablePrimaryKey,
       value: `\${${parentTablePrimaryKey}}`,
-      type: parentColumn.type
+      type: parentColumn.type,
     },
     {
       columnName: COL_ARRAY_VALUE,
       value: `\${${COL_ARRAY_VALUE}}`,
-      type: table.columns[COL_ARRAY_VALUE].type
+      type: table.columns[COL_ARRAY_VALUE].type,
     },
     {
       columnName: COL_ARRAY_INDEX,
       value: `\${${COL_ARRAY_INDEX}}`,
-      type: DataType.INTEGER
-    }
+      type: DataType.INTEGER,
+    },
   ]);
 
   const method = `const ${getInsertMethodNameFromChild(table)} = (
     ${parentTablePrimaryKey}: number,
     ${COL_ARRAY_VALUE}: ${table.property.type},
   ${COL_ARRAY_INDEX}: number,
+  useReplace = false
 ): string[] => {
   const queries: string[] = [];
   const columns: string[] = [];
@@ -143,7 +144,7 @@ ${pushes}
     return [];
   }
 
-  let query = "INSERT INTO ${table.name}(";
+  let query = \`\${useReplace ? 'REPLACE' : 'INSERT'} INTO ${table.name}(\`;
   query += columns.join(", ");
   query += ") VALUES(";
   query += values.join(", ");
@@ -226,7 +227,7 @@ const generateInsertOneToManyChildQuery = (
 ) => {
   const { parentTablePrimaryKey, parentTableName } = table;
   const foreignKey = table.foreignKeys.find(
-    fk => fk.parentColumnName === parentTablePrimaryKey
+    (fk) => fk.parentColumnName === parentTablePrimaryKey
   );
   if (!parentTablePrimaryKey || !parentTableName || !foreignKey) {
     throw Error(
@@ -241,13 +242,13 @@ const generateInsertOneToManyChildQuery = (
     {
       columnName: parentTablePrimaryKey,
       value: `\${${parentTablePrimaryKey}}`,
-      type: parentColumn.type
+      type: parentColumn.type,
     },
     {
       columnName: COL_ARRAY_INDEX,
       value: `\${${COL_ARRAY_INDEX}}`,
-      type: DataType.INTEGER
-    }
+      type: DataType.INTEGER,
+    },
   ]);
 
   pushes += getColumnValuePushesFromColumns(table, addDeclaredTypeAsImport);
@@ -256,6 +257,7 @@ const generateInsertOneToManyChildQuery = (
     input: ${table.declaredType.name},
     ${parentTablePrimaryKey}: number,
     ${COL_ARRAY_INDEX}: number,
+    useReplace = false,
   ): string[] => {
   const queries: string[] = [];
   const columns: string[] = [];
@@ -266,7 +268,7 @@ ${pushes}
     return [];
   }
 
-  let query = "INSERT INTO ${table.name}(";
+  let query = \`\${useReplace ? 'REPLACE' : 'INSERT'} INTO ${table.name}(\`;
   query += columns.join(", ");
   query += ") VALUES(";
   query += values.join(", ");
@@ -289,7 +291,7 @@ const generateInsertOneToOneChildQuery = (
 ) => {
   const { parentTablePrimaryKey, parentTableName } = table;
   const foreignKey = table.foreignKeys.find(
-    fk => fk.parentColumnName === parentTablePrimaryKey
+    (fk) => fk.parentColumnName === parentTablePrimaryKey
   );
   if (!parentTablePrimaryKey || !parentTableName || !foreignKey) {
     throw Error(
@@ -304,8 +306,8 @@ const generateInsertOneToOneChildQuery = (
     {
       columnName: parentTablePrimaryKey,
       value: `\${${parentTablePrimaryKey}}`,
-      type: parentColumn.type
-    }
+      type: parentColumn.type,
+    },
   ]);
 
   pushes += getColumnValuePushesFromColumns(table, addDeclaredTypeAsImport);
@@ -313,6 +315,7 @@ const generateInsertOneToOneChildQuery = (
   const method = `const ${getInsertMethodNameFromChild(table)} = (
     input: ${table.declaredType.name},
     ${parentTablePrimaryKey}: number,
+    useReplace = false,
   ): string[] => {
   const queries: string[] = [];
   const columns: string[] = [];
@@ -323,7 +326,7 @@ ${pushes}
     return [];
   }
 
-  let query = "INSERT INTO ${table.name}(";
+  let query = \`\${useReplace ? 'REPLACE' : 'INSERT'} INTO ${table.name}(\`;
   query += columns.join(", ");
   query += ") VALUES(";
   query += values.join(", ");
@@ -346,7 +349,7 @@ interface ColumnValueItem {
 }
 const getColumnValuePushes = (items: ColumnValueItem[]) => {
   let pushes = "";
-  items.forEach(item => {
+  items.forEach((item) => {
     const value =
       item.type === DataType.TEXT ? `\`'${item.value}'\`` : `\`${item.value}\``;
     pushes += `  columns.push('${item.columnName}');
@@ -357,15 +360,16 @@ const getColumnValuePushes = (items: ColumnValueItem[]) => {
   return pushes;
 };
 
-const getColumnValuePushesFromColumns = (
+export const getColumnValuePushesFromColumns = (
   table: DefaultTable | AdvancedArrayTable,
-  addDeclaredTypeAsImport: (declaredType: DeclarationTypeMinimal) => void
+  addDeclaredTypeAsImport: (declaredType: DeclarationTypeMinimal) => void,
+  exclude: Set<string> = new Set<string>()
 ): string => {
   const columnList = Object.values(table.columns);
   let pushes = "";
-  columnList.forEach(column => {
+  columnList.forEach((column) => {
     // other columns will be passed as arguments
-    if (isPropertyBasedColumn(column)) {
+    if (isPropertyBasedColumn(column) && !exclude.has(column.name)) {
       const { property } = column;
 
       const objRef = isComposite(table.declaredType)
@@ -424,7 +428,7 @@ const addChildrenQueries = (
   }
 
   let result = "";
-  table.declaredType.children.forEach(relation => {
+  table.declaredType.children.forEach((relation) => {
     const childTable = tables[relation.child.name];
     const property = getProperties(table.declaredType)[relation.propertyName];
     let objRef = "input";
@@ -478,7 +482,7 @@ const addBasicArrayChildrenQueries = (
   if (!table.primaryKey) return result;
 
   if (!isBasicArrayTable(table) && table.arrayTables.length > 0) {
-    table.arrayTables.forEach(arrayTableName => {
+    table.arrayTables.forEach((arrayTableName) => {
       const arrayTable = tables[arrayTableName] as BasicArrayTable;
       const { property } = arrayTable;
       const objRef = isComposite(table.declaredType)

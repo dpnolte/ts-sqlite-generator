@@ -15,32 +15,31 @@ import {
   AdvancedArrayTable,
   DefaultTable,
 } from "./resolveTables";
-import { Relation, PropertyType } from "./resolveModels";
+import {
+  Relation,
+  PropertyType,
+  DeclarationTypeMinimal,
+} from "./resolveModels";
 import { addNamedImport, ImportMap } from "./generateImports";
 import { QueryExports } from "./generateExports";
-import { getInsertMethodNameFromChild } from "./generateInsertQueries";
-
-interface AdditionalArgs {
-  name: string;
-  type: string;
-  column: string;
-  arrayTableProperty: boolean;
-  isOptional: boolean;
-}
+import {
+  getInsertMethodNameFromChild,
+  getColumnValuePushesFromColumns,
+} from "./generateInsertQueries";
 
 const tab = "  ";
 
 /**
  * Scenarios:
- * - A) Table is entry.. user needs to be able to update with primary key.
- *      when entry, table is updated based on primary key
+ * - A) Table is entry.. user needs to be able to replace with primary key.
+ *      when entry, table is replaced based on primary key
  * - B) Table is a child only
- *      when one-to-one child, table is updated based on primary key if available.
+ *      when one-to-one child, table is replaced based on primary key if available.
  *      if no primary key available or one-to-many, all children will be deleted and replaced by what is entered
- * - C) Table is both an entry and a child to antoher entry -> create two methods (one when updated as entry, another as child)
+ * - C) Table is both an entry and a child to antoher entry -> create two methods (one when replaced as entry, another as child)
  * - D) Table is a basic array table. All items will be deleted and replaced by what is entered if any value is provided.
  */
-export const generateUpdateQueries = (
+export const generateReplaceQueries = (
   tables: TableMap,
   targetPath: string,
   imports: ImportMap
@@ -48,23 +47,30 @@ export const generateUpdateQueries = (
   let body = "";
   const targetDir = path.dirname(targetPath);
 
+  const addDeclaredTypeAsImport = (declaredType: DeclarationTypeMinimal) =>
+    addNamedImport(declaredType, imports, targetDir);
+
   Object.values(tables).forEach((table) => {
     // todo: check if declared type can be exported
     const relativePath = path.relative(targetDir, table.declaredType.path);
     addNamedImport(table.declaredType, imports, targetDir);
 
-    body += `// update query based on ${table.declaredType.name} type definitions in ${relativePath}\n`;
+    body += `// replace query based on ${table.declaredType.name} type definitions in ${relativePath}\n`;
 
     // D - basic array table
     if (isBasicArrayTable(table)) {
-      body += generateUpdateBasicArrayQuery(table, tables);
+      body += generateReplaceBasicArrayQuery(table, tables);
     } else {
       addNamedImport(table.declaredType, imports, targetDir);
 
       if (table.declaredType.isEntry) {
         // A + C
-        body += generateUpdateEntryQuery(table, tables);
-        body += generateUpdateMultipleEntryQuery(table);
+        body += generateReplaceEntryQuery(
+          table,
+          tables,
+          addDeclaredTypeAsImport
+        );
+        body += generateReplaceMultipleEntryQuery(table);
       }
 
       if (table.parentTableName) {
@@ -72,10 +78,10 @@ export const generateUpdateQueries = (
         if (isAdvancedArrayTable(table)) {
           addNamedImport(table.declaredType, imports, targetDir);
 
-          body += generateUpdateOneToManyChildQuery(table, tables);
+          body += generateReplaceOneToManyChildQuery(table, tables);
           // B - child only (one to one)
         } else {
-          body += generateUpdateOneToOneChildQuery(table, tables);
+          body += generateReplaceOneToOneChildQuery(table, tables);
         }
       }
     }
@@ -84,7 +90,7 @@ export const generateUpdateQueries = (
   return body;
 };
 
-const generateUpdateBasicArrayQuery = (
+const generateReplaceBasicArrayQuery = (
   table: BasicArrayTable,
   tables: TableMap
 ) => {
@@ -109,11 +115,10 @@ const generateUpdateBasicArrayQuery = (
   ${parentTablePrimaryKey}: number,
 ): string[] => {
   const queries: string[] = [];
-  queries.push(\`DELETE FROM ${table.name} WHERE ${columnName}=${id}\`);
 
   ${COL_ARRAY_VALUES}.forEach((value, index) => {
     queries.push(
-      \`INSERT INTO ${
+      \`REPLACE INTO ${
         table.name
       }(${COL_ARRAY_INDEX}, ${columnName}, ${COL_ARRAY_VALUE}) VALUES(\${index}, ${id}, ${value})\`
     );
@@ -126,9 +131,10 @@ const generateUpdateBasicArrayQuery = (
   return method;
 };
 
-const generateUpdateEntryQuery = (
+const generateReplaceEntryQuery = (
   table: AdvancedArrayTable | DefaultTable,
-  tables: TableMap
+  tables: TableMap,
+  addDeclaredTypeAsImport: (declaredType: DeclarationTypeMinimal) => void
 ) => {
   const primaryKey = table.primaryKey;
   if (!primaryKey) {
@@ -149,37 +155,53 @@ const generateUpdateEntryQuery = (
     primaryKey,
     getters,
     tables,
-    false,
-    true
+    false
   );
   const arrayTableGetters = addBasicArrayChildrenQueries(table, false, tables);
 
   const methodName = getMethodName(table);
   QueryExports.add(methodName);
 
-  const method = `export const ${methodName} = (
-  input: Omit<Partial<${table.declaredType.name}>, '${primaryKey}'>,
-  ${primaryKey}: number,
-): string[] => {
-  const queries: string[] = [];
-  ${getColumnToValueArray(table, [primaryKey])}
+  const pushes = getColumnValuePushesFromColumns(
+    table,
+    addDeclaredTypeAsImport,
+    new Set<string>([primaryKey])
+  );
 
-  const query = \`UPDATE ${
-    table.name
-  } SET \${columnToValue.join(', ')} WHERE ${primaryKey}=\${${primaryKey}}\`;
+  const method = `const ${methodName} = (
+    input: Omit<Partial<${table.declaredType.name}>, '${primaryKey}'>,
+    ${primaryKey}: number,
+  ): string[] => {
+  const queries: string[] = [];
+  const columns: string[] = [];
+  const values: string[] = [];
+  
+  columns.push('${primaryKey}');
+  values.push(${primaryKey}.toString());
+
+${pushes}
+  if (columns.length === 0 || values.length === 0) {
+    return [];
+  }
+
+  let query = "REPLACE INTO ${table.name}(";
+  query += columns.join(", ");
+  query += ") VALUES(";
+  query += values.join(", ");
+  query += ");";
   queries.push(query);
 
-${childrenGetters}
-${arrayTableGetters}
+  ${childrenGetters}
+  ${arrayTableGetters}
 
   return queries;
-};
+  };
 `;
 
   return method;
 };
 
-const generateUpdateMultipleEntryQuery = (
+const generateReplaceMultipleEntryQuery = (
   table: AdvancedArrayTable | DefaultTable
 ) => {
   const primaryKey = table.primaryKey;
@@ -208,7 +230,7 @@ const generateUpdateMultipleEntryQuery = (
   return method;
 };
 
-const generateUpdateOneToManyChildQuery = (
+const generateReplaceOneToManyChildQuery = (
   table: AdvancedArrayTable,
   tables: TableMap
 ) => {
@@ -236,30 +258,23 @@ const generateUpdateOneToManyChildQuery = (
     table.primaryKey ? `input.${table.primaryKey}` : undefined,
     getters,
     tables,
-    true,
-    false
+    true
   );
   const arrayTableGetters = addBasicArrayChildrenQueries(table, false, tables);
 
   const method = `const ${getMethodNameForChild(table)} = (
   inputs: ${table.declaredType.name}[],
-  ${columnName}: number,
-  shouldDelete: boolean,
+  ${columnName}: number
 ): string[] => {
   const queries: string[] = [];
   
-  if (shouldDelete === true) {
-    queries.push(\`DELETE FROM ${
-      table.name
-    } WHERE ${columnName}=\${${columnName}}\`);
-  }
-
   inputs.forEach((input, index) => {
     queries.push(
       ...${getInsertMethodNameFromChild(table)}(
         input,
         ${columnName},
         index,
+        true
       )
     );
     ${childrenGetters}
@@ -273,7 +288,7 @@ const generateUpdateOneToManyChildQuery = (
   return method;
 };
 
-const generateUpdateOneToOneChildQuery = (
+const generateReplaceOneToOneChildQuery = (
   table: DefaultTable,
   tables: TableMap
 ) => {
@@ -301,28 +316,21 @@ const generateUpdateOneToOneChildQuery = (
     table.primaryKey ? `input.${table.primaryKey}` : undefined,
     getters,
     tables,
-    true,
-    false
+    true
   );
   const arrayTableGetters = addBasicArrayChildrenQueries(table, false, tables);
 
   const method = `const ${getMethodNameForChild(table)} = (
   input: ${table.declaredType.name},
   ${columnName}: number,
-  shouldDelete: boolean,
 ): string[] => {
   const queries: string[] = [];
-  
-  if (shouldDelete === true) {
-    queries.push(\`DELETE FROM ${
-      table.name
-    } WHERE ${columnName}=\${${columnName}}\`);
-  }
 
   queries.push(
     ...${getInsertMethodNameFromChild(table)}(
       input,
       ${columnName},
+      true
     )
   );
 
@@ -402,8 +410,7 @@ const addChildrenQueries = (
   primaryKeyPropertyName: string | undefined,
   getters: ChildrenGetter[],
   tables: TableMap,
-  checkIfPrimaryKeyIsThere: boolean,
-  shouldDelete: boolean
+  checkIfPrimaryKeyIsThere: boolean
 ) => {
   let result = "";
   if (isBasicArrayTable(table)) {
@@ -419,9 +426,7 @@ const addChildrenQueries = (
         : ""
     }`;
 
-    const args = `${accessSyntax}, ${
-      primaryKeyPropertyName ?? "undefined"
-    }, ${shouldDelete}`;
+    const args = `${accessSyntax}, ${primaryKeyPropertyName ?? "undefined"}`;
 
     result += `  if (${condition}) {
     queries.push(
@@ -478,6 +483,6 @@ export const wrapWithQuotesIfText = (column: Column, value: string) => {
   return value;
 };
 
-const getMethodName = (table: Table) => `update${table.name}`;
-const getMethodNameForMultiple = (table: Table) => `update${table.name}s`;
-const getMethodNameForChild = (table: Table) => `update${table.name}AsChild`;
+const getMethodName = (table: Table) => `replace${table.name}`;
+const getMethodNameForMultiple = (table: Table) => `replace${table.name}s`;
+const getMethodNameForChild = (table: Table) => `replace${table.name}AsChild`;
