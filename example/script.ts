@@ -77,24 +77,6 @@ queries.push(
 
 queries.push(...Queries.deletePhase(2));
 
-// queries.push(
-//   ...Queries.updatePhase(
-//     {
-//       name: "updated phase",
-//       articles: [
-//         {
-//           ...article,
-//           title: "updated article id from 1 to 3",
-//           articleId: 3,
-//           flag: false,
-//           postDate: new Date(),
-//         },
-//       ],
-//     },
-//     1
-//   )
-// );
-
 queries.push(
   ...Queries.replacePhase(
     {
@@ -113,6 +95,32 @@ queries.push(
   )
 );
 
+queries.push(
+  ...Queries.replacePhase(
+    {
+      name: "replaced phase 1 - step 2",
+      articles: [
+        {
+          ...article,
+          title: "replaced article id from 1 to 3",
+          articleId: 3,
+          flag: false,
+          postDate: new Date(),
+        },
+      ],
+    },
+    1
+  )
+);
+
+queries.push(
+  ...Queries.insertArticle({
+    ...article,
+    articleId: 4,
+    title: "article 4 without phase parent",
+  })
+);
+
 db.serialize(async () => {
   for (const query of schema.Schema) {
     db.exec(query, (err) => {
@@ -128,6 +136,14 @@ db.serialize(async () => {
       }
     });
   }
+  // At the end, it should have only one article in database
+  db.get("SELECT COUNT(*) FROM Article", (err, row) => {
+    const isAsExpected = row["COUNT(*)"] === 2;
+    console.log("should have two articles in database:", isAsExpected);
+    if (!isAsExpected) {
+      process.exit(1);
+    }
+  });
 });
 
 db.close();
