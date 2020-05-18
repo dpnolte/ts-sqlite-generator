@@ -9,17 +9,11 @@ import {
   Table,
   isAdvancedArrayTable,
   Column,
-  COL_ARRAY_INDEX,
   COL_ARRAY_VALUES,
-  COL_ARRAY_VALUE,
   AdvancedArrayTable,
   DefaultTable,
 } from "./resolveTables";
-import {
-  Relation,
-  PropertyType,
-  DeclarationTypeMinimal,
-} from "./resolveModels";
+import { Relation, DeclarationTypeMinimal } from "./resolveModels";
 import { addNamedImport, ImportMap } from "./generateImports";
 import { QueryExports } from "./generateExports";
 import {
@@ -104,12 +98,6 @@ const generateReplaceBasicArrayQuery = (
     );
   }
 
-  const { columnName } = foreignKey;
-  const parentTable = tables[parentTableName];
-  const parentColumn = parentTable.columns[parentTablePrimaryKey];
-  const id = `\${${parentTablePrimaryKey}}`;
-  const value = wrapWithQuotesIfText(parentColumn, "${value}");
-
   const method = `const ${getMethodNameForChild(table)} = (
   ${COL_ARRAY_VALUES}: ${table.property.type}[],
   ${parentTablePrimaryKey}: number,
@@ -118,9 +106,9 @@ const generateReplaceBasicArrayQuery = (
 
   ${COL_ARRAY_VALUES}.forEach((value, index) => {
     queries.push(
-      \`REPLACE INTO ${
-        table.name
-      }(${COL_ARRAY_INDEX}, ${columnName}, ${COL_ARRAY_VALUE}) VALUES(\${index}, ${id}, ${value})\`
+      ...${getInsertMethodNameFromChild(
+        table
+      )}(${parentTablePrimaryKey}, value, index, true),
     );
   });
 
@@ -341,64 +329,6 @@ const generateReplaceOneToOneChildQuery = (
 }
 `;
   return method;
-};
-
-const getColumnToValueArray = (
-  table: Table,
-  ignoreValuesList: (string | undefined)[] = []
-) => {
-  const ignoreValues = new Set(ignoreValuesList);
-  const columnList = Object.values(table.columns);
-  let array = `${tab}const columnToValue: string[] = [];\n`;
-  columnList.forEach((column) => {
-    // other columns will be passed as arguments
-    if (isPropertyBasedColumn(column) && !ignoreValues.has(column.name)) {
-      const { property } = column;
-
-      array += `${tab}if (typeof input.${property.accessSyntax} !== 'undefined') {\n`;
-      array +=
-        tab.repeat(2) +
-        getColumnToValuePush(column, `input.${property.accessSyntax}`);
-      array += `${tab}}\n`;
-    }
-  });
-  array += `${tab}if (columnToValue.length === 0) {\n`;
-  array += `${tab.repeat(2)}return [];\n`;
-  array += `${tab}}\n`;
-
-  return array;
-};
-
-const getColumnToValuePush = (column: Column, accessSyntax: string) => {
-  const isDate =
-    isPropertyBasedColumn(column) && column.property.type === PropertyType.Date;
-  return `columnToValue.push(\`${getColumnToValue(
-    column.name,
-    accessSyntax,
-    !isDate && column.type === DataType.TEXT,
-    isPropertyBasedColumn(column) &&
-      column.property.type === PropertyType.Boolean,
-    isDate
-  )}\`);\n`;
-};
-
-const getColumnToValue = (
-  columnName: string,
-  accessSyntax: string,
-  isString: boolean,
-  isBoolean: boolean,
-  isDate: boolean
-) => {
-  if (isString) {
-    return `${columnName}='\${${accessSyntax}.replace(/\'/g,"''")}'`;
-  }
-  if (isBoolean) {
-    return `${columnName}='\${${accessSyntax} === true ? '1' : '0'}'`;
-  }
-  if (isDate) {
-    return `${columnName}='\${${accessSyntax}.toISOString().replace(/\'/g,"''")}'`;
-  }
-  return `${columnName}=\${${accessSyntax}}`;
 };
 
 interface ChildrenGetter {

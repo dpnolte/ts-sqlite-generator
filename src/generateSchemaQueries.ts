@@ -11,7 +11,7 @@ export const generateSchemaQueries = (tables: TableMap, targetPath: string) => {
   const tab = "  ";
   const targetDir = path.dirname(targetPath);
 
-  Object.values(tables).forEach(table => {
+  Object.values(tables).forEach((table) => {
     const relativePath = path.relative(targetDir, table.declaredType.path);
     content += `// table based on ${table.declaredType.name} type definitions in ${relativePath}\n`;
 
@@ -66,10 +66,14 @@ export const generateSchemaQueries = (tables: TableMap, targetPath: string) => {
     content += ");\n";
     content += "`;\n\n";
 
-    table.indices.forEach((columnName, index) => {
-      const nextIndex = index + 1;
-      const indexName = `${table.name}_i${nextIndex}`;
-      content += `export const ${table.name}_i${nextIndex}_SQL = "CREATE INDEX ${indexName} ON ${table.name}(${columnName})";\n\n`;
+    table.indices.forEach((index, i) => {
+      const indexNumber = i + 1;
+      const indexName = `${table.name}_i${indexNumber}`;
+      content += `export const ${table.name}_i${indexNumber}_SQL = "CREATE ${
+        index.unique ? "UNIQUE " : ""
+      }INDEX ${indexName} ON ${table.name}(${index.columnNames.join(
+        ", "
+      )})";\n\n`;
       queryNames.push(`${indexName}_SQL`);
     });
   });

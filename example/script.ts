@@ -121,6 +121,8 @@ queries.push(
   })
 );
 
+queries.push(...Queries.replacePhase(phase, phase.phaseId));
+
 db.serialize(async () => {
   for (const query of schema.Schema) {
     db.exec(query, (err) => {

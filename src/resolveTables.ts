@@ -6,7 +6,7 @@ import {
   PropertyMap,
   PropertyDeclaration,
   RelationType,
-  isComposite
+  isComposite,
 } from "./resolveModels";
 
 export interface Tags {
@@ -26,7 +26,7 @@ export enum DataType {
   NUMERIC = "NUMERIC",
   REAL = "REAL",
   TEXT = "TEXT",
-  BLOB = "BLOB"
+  BLOB = "BLOB",
 }
 
 interface ForeignKey {
@@ -38,7 +38,7 @@ interface ForeignKey {
 export enum ColumnKind {
   BasedOnProperty,
   ArrayIndex,
-  PrimaryKeyFromParent
+  PrimaryKeyFromParent,
 }
 
 export interface Column {
@@ -67,7 +67,12 @@ interface Columns {
 export enum TableType {
   Default,
   BasicArray,
-  AdvancedArray
+  AdvancedArray,
+}
+
+export interface Index {
+  unique: boolean;
+  columnNames: string[];
 }
 
 interface BaseTable {
@@ -76,7 +81,7 @@ interface BaseTable {
   primaryKey?: string;
   declaredType: DeclaredType;
   foreignKeys: ForeignKey[];
-  indices: string[]; // column names
+  indices: Index[];
   type: TableType;
   parentTableName?: string;
   parentTablePrimaryKey?: string;
@@ -127,7 +132,7 @@ export const resolveTables = (
 ): TableMap => {
   const tables: TableMap = {};
 
-  rootTypes.forEach(rootType => {
+  rootTypes.forEach((rootType) => {
     visitNode(rootType, tags, tables);
   });
   return tables;
@@ -154,19 +159,19 @@ const visitNode = (
   const primaryKey = resolvePrimaryKey(declaredType, properties, tags);
 
   // resolve children first so that we can have its primary key
-  declaredType.children.forEach(relation => {
+  declaredType.children.forEach((relation) => {
     const nextParent: ParentTableEssentials = {
       primaryKey,
       name: declaredType.name,
       relation: relation.type,
-      isComposite: isComposite(declaredType)
+      isComposite: isComposite(declaredType),
     };
     visitNode(relation.child, tags, tables, nextParent);
   });
 
   const columns = resolveColumns(declaredType, properties, tags, parent);
   const foreignKeys = resolveForeignKeys(columns, parent);
-  const indices = resolveIndices(properties, foreignKeys, tags);
+  const indices = resolveIndices(properties, foreignKeys, tags, parent);
   const arrayTables = resolveArrayTables(
     declaredType,
     properties,
@@ -185,12 +190,12 @@ const visitNode = (
       parent?.relation === RelationType.OneToMany
         ? TableType.AdvancedArray
         : TableType.Default,
-    arrayTables: arrayTables.map(t => t.name),
+    arrayTables: arrayTables.map((t) => t.name),
     parentTableName: parent?.name,
-    parentTablePrimaryKey: parent?.primaryKey
+    parentTablePrimaryKey: parent?.primaryKey,
   };
 
-  arrayTables.forEach(arrayTable => {
+  arrayTables.forEach((arrayTable) => {
     tables[arrayTable.name] = arrayTable;
   });
 };
@@ -201,8 +206,8 @@ const resolvePrimaryKey = (
   tags: Tags
 ) => {
   const propertyList = Object.values(properties);
-  const propertiesWithDocTag = propertyList.filter(property =>
-    property.tags.some(tag => tag === tags.primaryKey)
+  const propertiesWithDocTag = propertyList.filter((property) =>
+    property.tags.some((tag) => tag === tags.primaryKey)
   );
   if (propertiesWithDocTag.length === 1) {
     return propertiesWithDocTag[0].name;
@@ -213,7 +218,7 @@ const resolvePrimaryKey = (
     );
   }
   const propertiesEndingWithId = propertyList.filter(
-    property =>
+    (property) =>
       property.type === PropertyType.Number && property.name.endsWith("Id")
   );
 
@@ -255,7 +260,7 @@ export const getProperties = (declaredType: DeclaredType): PropertyMap => {
   return declaredType.interfaces.reduce((props, interfaceDecl) => {
     return {
       ...props,
-      ...interfaceDecl.properties
+      ...interfaceDecl.properties,
     };
   }, {} as PropertyMap);
 };
@@ -268,7 +273,7 @@ const resolveColumns = (
 ) => {
   const columns: Columns = {};
 
-  Object.values(properties).forEach(property => {
+  Object.values(properties).forEach((property) => {
     if (!property.isArray) {
       const column = resolvePropertyToColumn(declaredType, property, tags);
       if (column) {
@@ -295,7 +300,7 @@ const addColumnsForRelationship = (
       notNull: true,
       autoIncrement: false,
       unique: false,
-      kind: ColumnKind.PrimaryKeyFromParent
+      kind: ColumnKind.PrimaryKeyFromParent,
     };
   }
 
@@ -309,7 +314,7 @@ const addColumnsForRelationship = (
         notNull: true,
         autoIncrement: false,
         unique: false,
-        kind: ColumnKind.ArrayIndex
+        kind: ColumnKind.ArrayIndex,
       };
     }
   }
@@ -327,8 +332,8 @@ const getDefaultColumnProps = (
     primaryKey: primaryKey === property.name,
     autoIncrement:
       primaryKey === property.name ||
-      property.tags.some(tag => tag === tags.autoIncrement),
-    unique: property.tags.some(tag => tag === tags.unique)
+      property.tags.some((tag) => tag === tags.autoIncrement),
+    unique: property.tags.some((tag) => tag === tags.unique),
   };
 };
 
@@ -341,29 +346,29 @@ const resolvePropertyToColumn = (
   const columnDefaultProps: Omit<PropertyBasedColumn, "type"> = {
     ...getDefaultColumnProps(declaredType, property, tags),
     kind: ColumnKind.BasedOnProperty,
-    property
+    property,
   };
   switch (property.type) {
     case PropertyType.Boolean:
       return {
         ...columnDefaultProps,
-        type: DataType.NUMERIC
+        type: DataType.NUMERIC,
       };
     case PropertyType.Number:
-      if (property.tags.some(tag => tag === tags.real)) {
+      if (property.tags.some((tag) => tag === tags.real)) {
         return {
           ...columnDefaultProps,
-          type: DataType.REAL
+          type: DataType.REAL,
         };
-      } else if (property.tags.some(tag => tag === tags.numeric)) {
+      } else if (property.tags.some((tag) => tag === tags.numeric)) {
         return {
           ...columnDefaultProps,
-          type: DataType.NUMERIC
+          type: DataType.NUMERIC,
         };
       } else {
         return {
           ...columnDefaultProps,
-          type: DataType.INTEGER
+          type: DataType.INTEGER,
         };
       }
       break;
@@ -371,15 +376,13 @@ const resolvePropertyToColumn = (
     case PropertyType.Date:
       return {
         ...columnDefaultProps,
-        type: DataType.TEXT
+        type: DataType.TEXT,
       };
       break;
     default:
       // do nothing (it is a relation type property)
       return null;
   }
-
-  return null;
 };
 
 const resolveArrayTables = (
@@ -392,7 +395,7 @@ const resolveArrayTables = (
   if (!primaryKey) {
     return tables;
   }
-  Object.values(properties).forEach(property => {
+  Object.values(properties).forEach((property) => {
     if (property.isArray && property.isBasicType) {
       const columnDefaultProps = getDefaultColumnProps(
         declaredType,
@@ -417,18 +420,18 @@ const resolveArrayTables = (
           ...columnDefaultProps,
           name: COL_ARRAY_INDEX,
           type: DataType.INTEGER,
-          kind: ColumnKind.ArrayIndex
+          kind: ColumnKind.ArrayIndex,
         },
         value: {
           ...valueColumn,
-          name: "value"
+          name: "value",
         },
         [primaryKey]: {
           ...columnDefaultProps,
           name: primaryKey,
           type: DataType.INTEGER,
-          kind: ColumnKind.PrimaryKeyFromParent
-        }
+          kind: ColumnKind.PrimaryKeyFromParent,
+        },
       };
 
       tables.push({
@@ -439,14 +442,19 @@ const resolveArrayTables = (
           {
             columnName: primaryKey,
             parentTableName: declaredType.name,
-            parentColumnName: primaryKey
-          }
+            parentColumnName: primaryKey,
+          },
         ],
-        indices: [],
+        indices: [
+          {
+            unique: true,
+            columnNames: [primaryKey, COL_ARRAY_INDEX],
+          },
+        ],
         type: TableType.BasicArray,
         property,
         parentTableName: declaredType.name,
-        parentTablePrimaryKey: primaryKey
+        parentTablePrimaryKey: primaryKey,
       });
     }
   });
@@ -466,7 +474,7 @@ const resolveForeignKeys = (
     foreignKeys.push({
       columnName,
       parentTableName: parent.name,
-      parentColumnName: parent.primaryKey
+      parentColumnName: parent.primaryKey,
     });
   }
 
@@ -476,17 +484,35 @@ const resolveForeignKeys = (
 const resolveIndices = (
   properties: PropertyMap,
   foreignKeys: ForeignKey[],
-  tags: Tags
-): string[] => {
-  const indices: string[] = [];
-  Object.values(properties).forEach(property => {
-    if (property.tags.some(tag => tag === tags.index)) {
-      indices.push(property.name);
+  tags: Tags,
+  parent?: ParentTableEssentials
+): Index[] => {
+  const indices: Index[] = [];
+  Object.values(properties).forEach((property) => {
+    if (property.tags.some((tag) => tag === tags.index)) {
+      indices.push({
+        columnNames: [property.name],
+        unique: false,
+      });
     }
   });
-  foreignKeys.forEach(foreignKey => {
-    indices.push(foreignKey.columnName);
+  foreignKeys.forEach((foreignKey) => {
+    indices.push({
+      columnNames: [foreignKey.columnName],
+      unique: false,
+    });
   });
+  // add unique constraint for index and parent primary key
+  if (
+    parent &&
+    parent.primaryKey &&
+    parent.relation === RelationType.OneToMany
+  ) {
+    indices.push({
+      columnNames: [parent.primaryKey, COL_ARRAY_INDEX],
+      unique: true,
+    });
+  }
 
   return indices;
 };
@@ -508,7 +534,7 @@ const resolveExistingTable = (
       existingTable.parentTablePrimaryKey ?? parent?.primaryKey;
     existingTable.foreignKeys = [
       ...existingTable.foreignKeys,
-      ...resolveForeignKeys(existingTable.columns, parent)
+      ...resolveForeignKeys(existingTable.columns, parent),
     ];
     if (
       isDefaultTable(existingTable) &&
@@ -518,7 +544,7 @@ const resolveExistingTable = (
     }
 
     // since existing table is an entry, add nullable FK / array index
-    existingTable.foreignKeys.forEach(fk => {
+    existingTable.foreignKeys.forEach((fk) => {
       const column = existingTable.columns[fk.columnName];
       column.notNull = false;
       if (isPropertyBasedColumn(column)) {
