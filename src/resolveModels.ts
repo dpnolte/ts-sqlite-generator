@@ -1,12 +1,12 @@
 import path from "path";
 import fs from "fs-extra";
-import ts from "typescript";
+import ts, { preProcessFile } from "typescript";
 import { Tags } from "./resolveTables";
 
 export enum RelationType {
   OneToOne = "OneToOne",
   OneToMany = "OneToMany",
-  ManyToMany = "ManyToMany"
+  ManyToMany = "ManyToMany",
 }
 
 export interface Relation {
@@ -17,7 +17,7 @@ export interface Relation {
 
 export enum DeclarationType {
   Interface,
-  Composite
+  Composite,
 }
 
 export interface DeclarationTypeMinimal {
@@ -49,7 +49,7 @@ export enum PropertyType {
   Boolean = "boolean",
   Date = "Date",
   Child = "child",
-  Composite = "Composite"
+  Composite = "Composite",
 }
 const PropertyTypeValue = new Set<string>(Object.values(PropertyType));
 const isPropertyType = (input: any): input is PropertyType =>
@@ -84,7 +84,8 @@ export const isComposite = (
 export const resolveModels = (
   rootFilePaths: string[],
   tsConfigPath: string,
-  tags: Tags
+  tags: Tags,
+  strict = true
 ) => {
   console.log("> compiling");
 
@@ -98,7 +99,7 @@ export const resolveModels = (
   const modelFiles = program
     .getSourceFiles()
     .filter(
-      sourceFile =>
+      (sourceFile) =>
         !sourceFile.isDeclarationFile &&
         sourceFile.fileName.endsWith("models.ts")
     );
@@ -107,14 +108,16 @@ export const resolveModels = (
   console.log("> resolving models");
 
   const rootTypes: InterfaceDeclaration[] = [];
-  modelFiles.forEach(sourceFile => {
+  modelFiles.forEach((sourceFile) => {
     const relativePath = path.relative(process.cwd(), sourceFile.fileName);
     console.log(`> processing '${relativePath}'`);
     const interfaces: ts.InterfaceDeclaration[] = [];
-    ts.forEachChild(sourceFile, node => visitNode(node, interfaces, tags));
+    ts.forEachChild(sourceFile, (node) =>
+      visitNode(node, interfaces, tags, strict)
+    );
 
-    interfaces.forEach(node => {
-      rootTypes.push(resolveInterface(node, checker, tags));
+    interfaces.forEach((node) => {
+      rootTypes.push(resolveInterface(node, checker, tags, strict));
     });
   });
 
@@ -125,16 +128,25 @@ export const resolveModels = (
 const visitNode = (
   node: ts.Node,
   interfaces: ts.InterfaceDeclaration[],
-  tags: Tags
+  tags: Tags,
+  strict: boolean
 ) => {
   if (ts.isInterfaceDeclaration(node)) {
     if (hasDocTag(node, tags.entry)) {
+      if (strict && node.typeParameters && node.typeParameters.length > 0) {
+        console.log(
+          `Error for '${node.name.getText()}': Type parameters are not supported`
+        );
+        process.exit(1);
+      }
       interfaces.push(node);
     }
   } else if (ts.isModuleDeclaration(node)) {
     console.log("module", node.name);
     // This is a namespace, visit its children
-    ts.forEachChild(node, child => visitNode(child, interfaces, tags));
+    ts.forEachChild(node, (child) =>
+      visitNode(child, interfaces, tags, strict)
+    );
   }
 };
 
@@ -142,22 +154,24 @@ const getSourceFilePath = (node: ts.Node) => node.getSourceFile().fileName;
 
 const hasDocTag = (node: ts.Node, tagName: string): boolean => {
   const tags = ts.getJSDocTags(node);
-  return tags.some(tag => tag.tagName.getText() === tagName);
+  return tags.some((tag) => tag.tagName.getText() === tagName);
 };
 
 const resolveInterface = (
   node: ts.InterfaceDeclaration,
   checker: ts.TypeChecker,
-  tags: Tags
+  tags: Tags,
+  strict: boolean
 ): InterfaceDeclaration => {
   const name = node.name.getText();
 
-  const properties = resolveProperties(node, checker);
+  const properties = resolveProperties(node, checker, strict);
   const children = resolveRelationships(
     node.name.getText(),
     checker,
     properties,
-    tags
+    tags,
+    strict
   );
 
   return {
@@ -166,50 +180,53 @@ const resolveInterface = (
     children,
     type: DeclarationType.Interface,
     path: getSourceFilePath(node),
-    isEntry: hasDocTag(node, tags.entry)
+    isEntry: hasDocTag(node, tags.entry),
   };
 };
 
 const resolveProperties = (
   node: ts.InterfaceDeclaration,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  strict: boolean
 ): PropertyMap => {
   let properties: PropertyMap = {};
   // check if node is inheriting properties
   if (node.heritageClauses) {
-    node.heritageClauses.forEach(heritageClause => {
-      heritageClause.types.forEach(herigateTypeExpression => {
+    node.heritageClauses.forEach((heritageClause) => {
+      heritageClause.types.forEach((herigateTypeExpression) => {
         const expressionType = checker.getTypeAtLocation(
           herigateTypeExpression.expression
         );
         const expressionSymbol =
           expressionType.symbol ?? expressionType.aliasSymbol;
         const interfaceDeclaration =
-          (expressionSymbol?.declarations.find(decl =>
+          (expressionSymbol?.declarations.find((decl) =>
             ts.isInterfaceDeclaration(decl)
           ) as ts.InterfaceDeclaration) || undefined;
         if (interfaceDeclaration) {
           const propertiesFromBaseType = resolveProperties(
             interfaceDeclaration,
-            checker
+            checker,
+            strict
           );
           properties = {
             ...properties,
-            ...propertiesFromBaseType
+            ...propertiesFromBaseType,
           };
         }
       });
     });
   }
 
-  node.members.forEach(member => {
+  node.members.forEach((member) => {
     if (ts.isPropertySignature(member) && member.type && member.name) {
       const property = resolveProperty(
         node,
         member,
         member.type,
         member.name,
-        checker
+        checker,
+        strict
       );
       if (property) {
         properties[property.name] = property;
@@ -225,7 +242,8 @@ const resolveProperty = (
   propertySignature: ts.PropertySignature,
   typeNode: ts.TypeNode,
   nameNode: ts.PropertyName,
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  strict: boolean
 ): PropertyDeclaration | null => {
   const isArray = ts.isArrayTypeNode(typeNode);
   const type = ts.isArrayTypeNode(typeNode)
@@ -240,20 +258,21 @@ const resolveProperty = (
     symbol && symbol.declarations ? symbol.declarations : undefined;
 
   const tags =
-    ts.getJSDocTags(propertySignature).map(tag => tag.tagName.getText()) ?? [];
+    ts.getJSDocTags(propertySignature).map((tag) => tag.tagName.getText()) ??
+    [];
   const name = nameNode.getText();
 
   const propertyDefaultProps = {
     name,
     declaredType: {
       name: declarationNode.name.getText(),
-      path: getSourceFilePath(declarationNode)
+      path: getSourceFilePath(declarationNode),
     },
     accessSyntax: name,
     isOptional,
     isArray,
     tags,
-    typeDeclarations: declarations ?? []
+    typeDeclarations: declarations ?? [],
   };
 
   switch (typeAsString) {
@@ -261,59 +280,75 @@ const resolveProperty = (
       return {
         type: PropertyType.String,
         isBasicType: true,
-        ...propertyDefaultProps
+        ...propertyDefaultProps,
       };
     case "number":
       return {
         type: PropertyType.Number,
         isBasicType: true,
-        ...propertyDefaultProps
+        ...propertyDefaultProps,
       };
     case "boolean":
       return {
         type: PropertyType.Boolean,
         isBasicType: true,
-        ...propertyDefaultProps
+        ...propertyDefaultProps,
       };
     case "Date":
       return {
         type: PropertyType.Date,
         isBasicType: true,
-        ...propertyDefaultProps
+        ...propertyDefaultProps,
       };
     default:
       if (!declarations) {
-        console.log(`> Skipping '${name}', don't know how to get symbol.`);
+        if (strict) {
+          console.log(`> Error for '${name}': don't know how to get symbol.`);
+          process.exit(1);
+        } else {
+          console.log(`> Skipping '${name}', don't know how to get symbol.`);
+        }
         return null;
       }
       const childType = resolveChildType(name, type, declarations, checker);
       if (!childType) {
-        console.log(
-          `> Skipping '${name}', don't know how to handle kind(s) ${declarations
-            .map(decl => syntaxKindToString(decl.kind))
-            .join(", ")} with text '${declarations
-            .map(decl => decl.getText())
-            .join(" or ")}' .`
-        );
+        if (strict) {
+          console.log(
+            `> Skipping '${name}', don't know how to handle kind(s) ${declarations
+              .map((decl) => syntaxKindToString(decl.kind))
+              .join(", ")} with text '${declarations
+              .map((decl) => decl.getText())
+              .join(" or ")}' .`
+          );
+        } else {
+          console.log(
+            `> Error for '${name}': don't know how to handle kind(s) ${declarations
+              .map((decl) => syntaxKindToString(decl.kind))
+              .join(", ")} with text '${declarations
+              .map((decl) => decl.getText())
+              .join(" or ")}' .`
+          );
+          process.exit(1);
+        }
         return null;
       }
       if (isPropertyType(childType)) {
         return {
           type: childType,
           isBasicType: true,
-          ...propertyDefaultProps
+          ...propertyDefaultProps,
         };
       } else if (Array.isArray(childType)) {
         return {
           type: PropertyType.Composite,
           isBasicType: false,
-          ...propertyDefaultProps
+          ...propertyDefaultProps,
         };
       } else {
         return {
           type: PropertyType.Child,
           isBasicType: false,
-          ...propertyDefaultProps
+          ...propertyDefaultProps,
         };
       }
   }
@@ -335,7 +370,7 @@ const resolveChildType = (
   }
 
   const enumDeclaration =
-    (declarations.find(declaration =>
+    (declarations.find((declaration) =>
       ts.isEnumDeclaration(declaration)
     ) as ts.EnumDeclaration) || undefined;
 
@@ -352,7 +387,7 @@ const resolveChildType = (
     if (
       enumDeclaration.members.some(
         // eslint-disable-next-line valid-typeof
-        member =>
+        (member) =>
           firstEnumMemberType !== typeof checker.getConstantValue(member)
       )
     ) {
@@ -378,7 +413,7 @@ const resolveChildType = (
   }
 
   const enumMemberDeclaration =
-    (declarations.find(decl => ts.isEnumMember(decl)) as ts.EnumMember) ||
+    (declarations.find((decl) => ts.isEnumMember(decl)) as ts.EnumMember) ||
     undefined;
   if (enumMemberDeclaration) {
     const value = checker.getConstantValue(enumMemberDeclaration);
@@ -409,7 +444,7 @@ const resolveChildType = (
       if (isNumber || isString) {
         if (
           !type.types.every(
-            subType =>
+            (subType) =>
               subType.isNumberLiteral() === isNumber &&
               subType.isStringLiteral() === isString
           )
@@ -443,10 +478,10 @@ const resolveChildType = (
 
 const getInterfaceDeclarationsFromUnion = (node: ts.UnionType) => {
   const interfaceDeclarations: ts.InterfaceDeclaration[] = [];
-  node.types.forEach(subType => {
+  node.types.forEach((subType) => {
     const decl = subType
       .getSymbol()
-      ?.declarations.find(subDecl => ts.isInterfaceDeclaration(subDecl));
+      ?.declarations.find((subDecl) => ts.isInterfaceDeclaration(subDecl));
     if (decl && ts.isInterfaceDeclaration(decl)) {
       interfaceDeclarations.push(decl);
     }
@@ -455,13 +490,13 @@ const getInterfaceDeclarationsFromUnion = (node: ts.UnionType) => {
 };
 
 const findTypeAliasDeclaration = (declarations: ts.Declaration[]) => {
-  return declarations.find(declaration =>
+  return declarations.find((declaration) =>
     ts.isTypeAliasDeclaration(declaration)
   ) as ts.TypeAliasDeclaration | undefined;
 };
 
 const findInterfaceDeclaration = (declarations: ts.Declaration[]) => {
-  return declarations.find(declaration =>
+  return declarations.find((declaration) =>
     ts.isInterfaceDeclaration(declaration)
   ) as ts.InterfaceDeclaration | undefined;
 };
@@ -470,10 +505,11 @@ const resolveRelationships = (
   parentName: string,
   checker: ts.TypeChecker,
   properties: PropertyMap,
-  tags: Tags
+  tags: Tags,
+  strict: boolean
 ) => {
   const children: Relation[] = [];
-  Object.values(properties).forEach(property => {
+  Object.values(properties).forEach((property) => {
     if (property.type === PropertyType.Child) {
       const interfaceDeclaration = findInterfaceDeclaration(
         property.typeDeclarations
@@ -487,13 +523,14 @@ const resolveRelationships = (
       const declaredType = resolveInterface(
         interfaceDeclaration,
         checker,
-        tags
+        tags,
+        strict
       );
 
       children.push({
         type: property.isArray ? RelationType.OneToMany : RelationType.OneToOne,
         child: declaredType,
-        propertyName: property.name
+        propertyName: property.name,
       });
     } else if (property.type === PropertyType.Composite) {
       const typeAliasDeclaration = findTypeAliasDeclaration(
@@ -515,13 +552,14 @@ const resolveRelationships = (
         typeAliasDeclaration,
         interfaceDeclarations,
         checker,
-        tags
+        tags,
+        strict
       );
 
       children.push({
         type: property.isArray ? RelationType.OneToMany : RelationType.OneToOne,
         child: declaredType,
-        propertyName: property.name
+        propertyName: property.name,
       });
     }
   });
@@ -533,22 +571,29 @@ const createCompositeTypeFromMultipleInterfaces = (
   typeAliasDeclaration: ts.TypeAliasDeclaration,
   interfaceDeclarations: ts.InterfaceDeclaration[],
   checker: ts.TypeChecker,
-  tags: Tags
+  tags: Tags,
+  strict: boolean
 ): CompositeDeclaration => {
   const name = typeAliasDeclaration.name.getText();
 
   let properties: PropertyMap = {};
   const interfaces: InterfaceDeclaration[] = [];
-  interfaceDeclarations.forEach(decl => {
-    const interfaceDecl = resolveInterface(decl, checker, tags);
+  interfaceDeclarations.forEach((decl) => {
+    const interfaceDecl = resolveInterface(decl, checker, tags, strict);
     properties = {
       ...properties,
-      ...interfaceDecl.properties
+      ...interfaceDecl.properties,
     };
     interfaces.push(interfaceDecl);
   });
 
-  const children = resolveRelationships(name, checker, properties, tags);
+  const children = resolveRelationships(
+    name,
+    checker,
+    properties,
+    tags,
+    strict
+  );
 
   return {
     name,
@@ -556,7 +601,7 @@ const createCompositeTypeFromMultipleInterfaces = (
     children,
     type: DeclarationType.Composite,
     path: getSourceFilePath(typeAliasDeclaration),
-    isEntry: false
+    isEntry: false,
   };
 };
 
@@ -566,7 +611,7 @@ const createEnumWithMarkerToString = <T extends number = number>(
 ) => {
   const map: Map<number, string> = new Map();
 
-  Object.keys(enumeration).forEach(name => {
+  Object.keys(enumeration).forEach((name) => {
     const id = enumeration[name];
     if (typeof id === "number" && !map.has(id)) {
       map.set(id, name);

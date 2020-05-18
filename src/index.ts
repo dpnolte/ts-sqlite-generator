@@ -11,7 +11,7 @@ const defaultTags: Tags = {
   unique: "sqlite_uniq",
   autoIncrement: "sqlite_auto_increment",
   real: "sqlite_real",
-  numeric: "sqlite_numeric"
+  numeric: "sqlite_numeric",
 };
 
 export const generator = (
@@ -19,7 +19,8 @@ export const generator = (
   tsConfigPath: string,
   targetSchemaPath: string,
   targetHelpersPath?: string,
-  tags?: Tags
+  tags?: Tags,
+  strict = true
 ) => {
   console.log("start");
 
@@ -31,7 +32,8 @@ export const generator = (
   const rootTypes = resolveModels(
     rootFilePaths,
     tsConfigPath,
-    tags ?? defaultTags
+    tags ?? defaultTags,
+    strict
   );
 
   const tables = resolveTables(rootTypes, tags ?? defaultTags);

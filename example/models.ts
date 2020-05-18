@@ -1,9 +1,12 @@
+interface ArticleBase {
+  articleId: number;
+  title: string;
+}
+
 /**
  * @sqlite_entry
  */
-export interface Article {
-  articleId: number;
-  title: string;
+export interface Article extends ArticleBase {
   /**
    * @sqlite_index
    *
@@ -21,10 +24,12 @@ export interface Article {
 /**
  * @sqlite_entry
  */
-export interface Phase {
+// export interface Phase extends PhaseBase<Article> {}
+
+export interface Phase<TArticle extends ArticleBase = Article> {
   name: string;
   phaseId: number;
-  articles: Article[];
+  articles: TArticle[];
   optionalFieldsWork?: boolean;
   values: string[];
 }
@@ -32,7 +37,7 @@ export interface Phase {
 export enum ArticleType {
   A,
   B,
-  C
+  C,
 }
 
 export type ArticlePosition = "left" | "center" | "right";
