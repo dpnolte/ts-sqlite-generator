@@ -555,5 +555,16 @@ const resolveExistingTable = (
     if (arrayIndexCol) {
       arrayIndexCol.notNull = false;
     }
+
+    // add unique constraint for one to many relationship
+    if (
+      existingTable.parentTablePrimaryKey &&
+      parent?.relation === RelationType.OneToMany
+    ) {
+      existingTable.indices.push({
+        unique: true,
+        columnNames: [existingTable.parentTablePrimaryKey, COL_ARRAY_INDEX],
+      });
+    }
   }
 };
