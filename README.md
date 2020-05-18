@@ -80,4 +80,4 @@ yarn ts-node -T scripts/generateSchemas.ts
 ```
 
 # output
-this results in queries being generated (CREATE TABLE, INSERT, UPDATE (todo))
+this results in queries being generated (CREATE TABLE, INSERT, REPLACE)
