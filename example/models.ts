@@ -24,9 +24,9 @@ export interface Article extends ArticleBase {
 /**
  * @sqlite_entry
  */
-// export interface Phase extends PhaseBase<Article> {}
+export interface Phase extends PhaseBase<Article> {}
 
-export interface Phase<TArticle extends ArticleBase = Article> {
+export interface PhaseBase<TArticle extends ArticleBase = Article> {
   name: string;
   phaseId: number;
   articles: TArticle[];

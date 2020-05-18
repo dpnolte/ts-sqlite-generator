@@ -43,6 +43,15 @@ export interface CompositeDeclaration extends DeclarationTypeBase {
 
 export type DeclaredType = CompositeDeclaration | InterfaceDeclaration;
 
+type ResolvedTypeArgument = {
+  type: ts.Type;
+  declarations: ts.Declaration[];
+};
+type TypeParameterMapping = Record<
+  string /* type parameter name */,
+  ResolvedTypeArgument
+>;
+
 export enum PropertyType {
   String = "string",
   Number = "number",
@@ -165,7 +174,7 @@ const resolveInterface = (
 ): InterfaceDeclaration => {
   const name = node.name.getText();
 
-  const properties = resolveProperties(node, checker, strict);
+  const properties = resolveProperties(node, checker, [], strict);
   const children = resolveRelationships(
     node.name.getText(),
     checker,
@@ -187,6 +196,7 @@ const resolveInterface = (
 const resolveProperties = (
   node: ts.InterfaceDeclaration,
   checker: ts.TypeChecker,
+  parentTypeArguments: ResolvedTypeArgument[],
   strict: boolean
 ): PropertyMap => {
   let properties: PropertyMap = {};
@@ -197,6 +207,15 @@ const resolveProperties = (
         const expressionType = checker.getTypeAtLocation(
           herigateTypeExpression.expression
         );
+        // resolve any provided type arguments to declarations
+        const typeArguments: ResolvedTypeArgument[] = [];
+        herigateTypeExpression.typeArguments?.forEach((typeArgument) => {
+          const typeArgumentType = checker.getTypeAtLocation(typeArgument);
+          typeArguments.push({
+            type: typeArgumentType,
+            declarations: typeArgumentType.symbol.declarations,
+          });
+        });
         const expressionSymbol =
           expressionType.symbol ?? expressionType.aliasSymbol;
         const interfaceDeclaration =
@@ -207,6 +226,7 @@ const resolveProperties = (
           const propertiesFromBaseType = resolveProperties(
             interfaceDeclaration,
             checker,
+            typeArguments,
             strict
           );
           properties = {
@@ -218,6 +238,23 @@ const resolveProperties = (
     });
   }
 
+  const typeParameterMapping: TypeParameterMapping = {};
+  if (node.typeParameters && node.typeParameters.length > 0) {
+    if (node.typeParameters.length !== parentTypeArguments.length) {
+      console.log(
+        `Error for '${node.name.getText()}': Missing type arguments from parent`
+      );
+      if (strict) {
+        process.exit(1);
+      }
+    }
+    // get mapping of type parameter name to declaration type
+    node.typeParameters.forEach((typeParameter, index) => {
+      typeParameterMapping[typeParameter.name.getText()] =
+        parentTypeArguments[index];
+    });
+  }
+
   node.members.forEach((member) => {
     if (ts.isPropertySignature(member) && member.type && member.name) {
       const property = resolveProperty(
@@ -226,6 +263,7 @@ const resolveProperties = (
         member.type,
         member.name,
         checker,
+        typeParameterMapping,
         strict
       );
       if (property) {
@@ -243,6 +281,7 @@ const resolveProperty = (
   typeNode: ts.TypeNode,
   nameNode: ts.PropertyName,
   checker: ts.TypeChecker,
+  typeParameterMapping: TypeParameterMapping,
   strict: boolean
 ): PropertyDeclaration | null => {
   const isArray = ts.isArrayTypeNode(typeNode);
@@ -251,7 +290,12 @@ const resolveProperty = (
     : checker.getTypeAtLocation(typeNode);
 
   const isOptional = !!propertySignature.questionToken;
-  const typeAsString = checker.typeToString(type);
+  const originalTypeString = checker.typeToString(type);
+  // when type is provided as type argument, use the provided type. We set it here so that primitives will be resolved (e.g., EntityModel<string>)
+  const typeAsString = typeParameterMapping[originalTypeString]
+    ? checker.typeToString(typeParameterMapping[originalTypeString].type)
+    : originalTypeString;
+
   const symbol = type.aliasSymbol ?? type.getSymbol();
 
   const declarations =
@@ -301,33 +345,76 @@ const resolveProperty = (
         ...propertyDefaultProps,
       };
     default:
-      if (!declarations) {
-        if (strict) {
-          console.log(`> Error for '${name}': don't know how to get symbol.`);
-          process.exit(1);
+      // is the type provided as type argument and is not a primitive?
+      if (typeParameterMapping[originalTypeString]) {
+        const typeArgument = typeParameterMapping[originalTypeString];
+        const childType = resolveChildType(
+          typeArgument.type.symbol.name,
+          typeArgument.type,
+          typeArgument.declarations,
+          checker,
+          strict
+        );
+        if (!childType) {
+          console.log(
+            `> Error for '${
+              typeArgument.type.symbol.name
+            }', don't know how to handle type argument kind(s) ${typeArgument.declarations
+              .map((decl) => syntaxKindToString(decl.kind))
+              .join(", ")} with text '${typeArgument.declarations
+              .map((decl) => decl.getText())
+              .join(" or ")}' .`
+          );
+          if (strict) {
+            process.exit(1);
+          }
+        }
+        if (isPropertyType(childType)) {
+          return {
+            type: childType,
+            isBasicType: true,
+            ...propertyDefaultProps,
+            typeDeclarations: typeArgument.declarations,
+          };
+        } else if (Array.isArray(childType)) {
+          return {
+            type: PropertyType.Composite,
+            isBasicType: false,
+            ...propertyDefaultProps,
+            typeDeclarations: typeArgument.declarations,
+          };
         } else {
-          console.log(`> Skipping '${name}', don't know how to get symbol.`);
+          return {
+            type: PropertyType.Child,
+            isBasicType: false,
+            ...propertyDefaultProps,
+            typeDeclarations: typeArgument.declarations,
+          };
+        }
+      }
+      if (!declarations) {
+        console.log(`> Error for '${name}': don't know how to get symbol.`);
+        if (strict) {
+          process.exit(1);
         }
         return null;
       }
-      const childType = resolveChildType(name, type, declarations, checker);
+      const childType = resolveChildType(
+        name,
+        type,
+        declarations,
+        checker,
+        strict
+      );
       if (!childType) {
+        console.log(
+          `> Error for '${name}', don't know how to handle kind(s) ${declarations
+            .map((decl) => syntaxKindToString(decl.kind))
+            .join(", ")} with text '${declarations
+            .map((decl) => decl.getText())
+            .join(" or ")}' .`
+        );
         if (strict) {
-          console.log(
-            `> Skipping '${name}', don't know how to handle kind(s) ${declarations
-              .map((decl) => syntaxKindToString(decl.kind))
-              .join(", ")} with text '${declarations
-              .map((decl) => decl.getText())
-              .join(" or ")}' .`
-          );
-        } else {
-          console.log(
-            `> Error for '${name}': don't know how to handle kind(s) ${declarations
-              .map((decl) => syntaxKindToString(decl.kind))
-              .join(", ")} with text '${declarations
-              .map((decl) => decl.getText())
-              .join(" or ")}' .`
-          );
           process.exit(1);
         }
         return null;
@@ -358,7 +445,8 @@ const resolveChildType = (
   name: string,
   type: ts.Type,
   declarations: ts.Declaration[],
-  checker: ts.TypeChecker
+  checker: ts.TypeChecker,
+  strict: boolean
 ):
   | ts.InterfaceDeclaration[]
   | ts.InterfaceDeclaration
@@ -382,6 +470,9 @@ const resolveChildType = (
       console.log(
         `> Skipping '${name}', only support number and strint constant value types`
       );
+      if (strict) {
+        process.exit(1);
+      }
       return null;
     }
     if (
@@ -394,6 +485,9 @@ const resolveChildType = (
       console.log(
         `> Skipping '${name}', no support for mixed enum constant value types`
       );
+      if (strict) {
+        process.exit(1);
+      }
       return null;
     }
 
@@ -409,6 +503,9 @@ const resolveChildType = (
         enumDeclaration.kind
       )}'`
     );
+    if (strict) {
+      process.exit(1);
+    }
     return null;
   }
 
@@ -426,6 +523,9 @@ const resolveChildType = (
     console.log(
       `> Skipping '${name}', don't know how to handle enum member with value type'${typeof value}'`
     );
+    if (strict) {
+      process.exit(1);
+    }
     return null;
   }
 
@@ -435,6 +535,9 @@ const resolveChildType = (
       console.log(
         `> Skipping '${name}' as intersection types are not supported (yet).`
       );
+      if (strict) {
+        process.exit(1);
+      }
       return null;
     }
     if (type.isUnion() && type.types.length > 0) {
@@ -452,6 +555,9 @@ const resolveChildType = (
           console.log(
             `> Skipping '${name}', miaxing literal type aliases is not supported`
           );
+          if (strict) {
+            process.exit(1);
+          }
           return null;
         }
         if (isNumber) {
