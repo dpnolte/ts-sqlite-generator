@@ -93,35 +93,12 @@ queries.push(
       name: "replaced phase 1 - step 1",
       subPhases: [
         {
-          subPhaseId: 1,
+          subPhaseId: 2,
           articles: [
             {
               ...article,
               title: "replaced article id from 1 to 2",
               articleId: 2,
-              flag: false,
-              postDate: new Date(),
-            },
-          ],
-        },
-      ],
-    },
-    1
-  )
-);
-
-queries.push(
-  ...Queries.replacePhase(
-    {
-      name: "replaced phase 1 - step 2",
-      subPhases: [
-        {
-          subPhaseId: 1,
-          articles: [
-            {
-              ...article,
-              title: "replaced article id from 1 to 3",
-              articleId: 3,
               flag: false,
               postDate: new Date(),
             },
@@ -141,8 +118,6 @@ queries.push(
   })
 );
 
-queries.push(...Queries.replacePhase(phase, phase.phaseId));
-
 db.serialize(async () => {
   for (const query of schema.Schema) {
     db.exec(query, (err) => {
@@ -153,15 +128,35 @@ db.serialize(async () => {
   }
   for (const query of queries) {
     db.exec(query, (err) => {
+      // console.log(query);
       if (err) {
         console.log("error", err, query);
       }
     });
   }
-  // At the end, it should have only one article in database
+  // At the end, it should have only two articles in database
   db.get("SELECT COUNT(*) FROM Article", (err, row) => {
     const isAsExpected = row["COUNT(*)"] === 2;
     console.log("should have two articles in database:", isAsExpected);
+    if (!isAsExpected) {
+      process.exit(1);
+    }
+  });
+  // At the end, we should have only one subphase
+  db.get("SELECT COUNT(*) FROM SubPhase", (err, row) => {
+    const isAsExpected = row["COUNT(*)"] === 1;
+    console.log("should have one subPhase in database:", isAsExpected);
+    if (!isAsExpected) {
+      process.exit(1);
+    }
+  });
+  // At the end, subphase should have updated id of 2
+  db.get("SELECT subPhaseId FROM SubPhase", (err, row) => {
+    const isAsExpected = row["subPhaseId"] === 2;
+    console.log(
+      "should have updated subPhaseId to 2 in database:",
+      isAsExpected
+    );
     if (!isAsExpected) {
       process.exit(1);
     }

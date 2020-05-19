@@ -241,14 +241,6 @@ const generateReplaceOneToManyChildQuery = (
       relation,
     });
   });
-  const childrenGetters = addChildrenQueries(
-    table,
-    table.primaryKey ? `input.${table.primaryKey}` : undefined,
-    getters,
-    tables,
-    true
-  );
-  const arrayTableGetters = addBasicArrayChildrenQueries(table, false, tables);
 
   const method = `const ${getMethodNameForChild(table)} = (
   inputs: ${table.declaredType.name}[],
@@ -265,10 +257,7 @@ const generateReplaceOneToManyChildQuery = (
         true
       )
     );
-    ${childrenGetters}
   });
-
-  ${arrayTableGetters}
   
   return queries;
 }
@@ -299,14 +288,6 @@ const generateReplaceOneToOneChildQuery = (
       relation,
     });
   });
-  const childrenGetters = addChildrenQueries(
-    table,
-    table.primaryKey ? `input.${table.primaryKey}` : undefined,
-    getters,
-    tables,
-    true
-  );
-  const arrayTableGetters = addBasicArrayChildrenQueries(table, false, tables);
 
   const method = `const ${getMethodNameForChild(table)} = (
   input: ${table.declaredType.name},
@@ -321,9 +302,6 @@ const generateReplaceOneToOneChildQuery = (
       true
     )
   );
-
-  ${childrenGetters}
-  ${arrayTableGetters}
   
   return queries;
 }
