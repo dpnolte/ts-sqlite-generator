@@ -34,6 +34,7 @@ export interface DeclarationTypeBase extends DeclarationTypeMinimal {
 export interface InterfaceDeclaration extends DeclarationTypeBase {
   properties: PropertyMap;
   type: DeclarationType.Interface;
+  typeParameterMapping: TypeParameterMapping;
 }
 
 export interface CompositeDeclaration extends DeclarationTypeBase {
@@ -126,7 +127,7 @@ export const resolveModels = (
     );
 
     interfaces.forEach((node) => {
-      rootTypes.push(resolveInterface(node, checker, tags, strict));
+      rootTypes.push(resolveInterface(node, checker, [], tags, strict));
     });
   });
 
@@ -169,45 +170,21 @@ const hasDocTag = (node: ts.Node, tagName: string): boolean => {
 const resolveInterface = (
   node: ts.InterfaceDeclaration,
   checker: ts.TypeChecker,
+  parentTypeArguments: ResolvedTypeArgument[],
   tags: Tags,
   strict: boolean
 ): InterfaceDeclaration => {
   const name = node.name.getText();
 
-  const properties = resolveProperties(node, checker, [], strict);
-  const children = resolveRelationships(
-    node.name.getText(),
-    checker,
-    properties,
-    tags,
-    strict
-  );
-
-  return {
-    name,
-    properties,
-    children,
-    type: DeclarationType.Interface,
-    path: getSourceFilePath(node),
-    isEntry: hasDocTag(node, tags.entry),
-  };
-};
-
-const resolveProperties = (
-  node: ts.InterfaceDeclaration,
-  checker: ts.TypeChecker,
-  parentTypeArguments: ResolvedTypeArgument[],
-  strict: boolean
-): PropertyMap => {
-  let properties: PropertyMap = {};
   // check if node is inheriting properties
+  const baseInterfaces: InterfaceDeclaration[] = [];
   if (node.heritageClauses) {
     node.heritageClauses.forEach((heritageClause) => {
       heritageClause.types.forEach((herigateTypeExpression) => {
         const expressionType = checker.getTypeAtLocation(
           herigateTypeExpression.expression
         );
-        // resolve any provided type arguments to declarations
+        // resolve any provided type arguments to declarations of inherited type
         const typeArguments: ResolvedTypeArgument[] = [];
         herigateTypeExpression.typeArguments?.forEach((typeArgument) => {
           const typeArgumentType = checker.getTypeAtLocation(typeArgument);
@@ -223,16 +200,15 @@ const resolveProperties = (
             ts.isInterfaceDeclaration(decl)
           ) as ts.InterfaceDeclaration) || undefined;
         if (interfaceDeclaration) {
-          const propertiesFromBaseType = resolveProperties(
-            interfaceDeclaration,
-            checker,
-            typeArguments,
-            strict
+          baseInterfaces.push(
+            resolveInterface(
+              interfaceDeclaration,
+              checker,
+              typeArguments,
+              tags,
+              strict
+            )
           );
-          properties = {
-            ...properties,
-            ...propertiesFromBaseType,
-          };
         }
       });
     });
@@ -255,6 +231,55 @@ const resolveProperties = (
     });
   }
 
+  const properties = resolveProperties(
+    node,
+    checker,
+    typeParameterMapping,
+    strict
+  );
+  const children = resolveRelationships(
+    node.name.getText(),
+    checker,
+    properties,
+    typeParameterMapping,
+    tags,
+    strict
+  );
+
+  return {
+    name,
+    properties:
+      baseInterfaces.length > 0
+        ? {
+            ...baseInterfaces.reduce((props, baseInterface) => {
+              return { ...props, ...baseInterface.properties };
+            }, {} as PropertyMap),
+            ...properties,
+          }
+        : properties,
+    children:
+      baseInterfaces.length > 0
+        ? [
+            ...baseInterfaces.reduce((childs, baseInterface) => {
+              return [...childs, ...baseInterface.children];
+            }, [] as Relation[]),
+            ...children,
+          ]
+        : children,
+    type: DeclarationType.Interface,
+    path: getSourceFilePath(node),
+    isEntry: hasDocTag(node, tags.entry),
+    typeParameterMapping,
+  };
+};
+
+const resolveProperties = (
+  node: ts.InterfaceDeclaration,
+  checker: ts.TypeChecker,
+  typeParameterMapping: TypeParameterMapping,
+  strict: boolean
+): PropertyMap => {
+  const properties: PropertyMap = {};
   node.members.forEach((member) => {
     if (ts.isPropertySignature(member) && member.type && member.name) {
       const property = resolveProperty(
@@ -468,7 +493,7 @@ const resolveChildType = (
     );
     if (firstEnumMemberType !== "number" && firstEnumMemberType !== "string") {
       console.log(
-        `> Skipping '${name}', only support number and strint constant value types`
+        `> Error for '${name}': only support number and strint constant value types`
       );
       if (strict) {
         process.exit(1);
@@ -483,7 +508,7 @@ const resolveChildType = (
       )
     ) {
       console.log(
-        `> Skipping '${name}', no support for mixed enum constant value types`
+        `> Error for '${name}': no support for mixed enum constant value types`
       );
       if (strict) {
         process.exit(1);
@@ -499,7 +524,7 @@ const resolveChildType = (
     }
 
     console.log(
-      `> Skipping '${name}', don't know how to handle enum  '${syntaxKindToString(
+      `> Error for '${name}': don't know how to handle enum  '${syntaxKindToString(
         enumDeclaration.kind
       )}'`
     );
@@ -521,7 +546,7 @@ const resolveChildType = (
       return PropertyType.Number;
     }
     console.log(
-      `> Skipping '${name}', don't know how to handle enum member with value type'${typeof value}'`
+      `> Error for '${name}': don't know how to handle enum member with value type'${typeof value}'`
     );
     if (strict) {
       process.exit(1);
@@ -533,7 +558,7 @@ const resolveChildType = (
   if (typeAliasDeclaration) {
     if (type.isIntersection()) {
       console.log(
-        `> Skipping '${name}' as intersection types are not supported (yet).`
+        `> Error for '${name}': as intersection types are not supported (yet).`
       );
       if (strict) {
         process.exit(1);
@@ -553,7 +578,7 @@ const resolveChildType = (
           )
         ) {
           console.log(
-            `> Skipping '${name}', miaxing literal type aliases is not supported`
+            `> Error for '${name}': mixing literal type aliases is not supported`
           );
           if (strict) {
             process.exit(1);
@@ -611,6 +636,7 @@ const resolveRelationships = (
   parentName: string,
   checker: ts.TypeChecker,
   properties: PropertyMap,
+  typeParameterMapping: TypeParameterMapping,
   tags: Tags,
   strict: boolean
 ) => {
@@ -626,9 +652,27 @@ const resolveRelationships = (
         );
       }
 
+      // resolve any type arguments provided to property declaration
+      const typeArguments: ResolvedTypeArgument[] = [];
+      if (interfaceDeclaration.typeParameters) {
+        interfaceDeclaration.typeParameters.forEach((typeArgument) => {
+          const typeArgumentType = checker.getTypeAtLocation(typeArgument);
+          const typeAsString = checker.typeToString(typeArgumentType);
+          if (typeParameterMapping[typeAsString]) {
+            typeArguments.push({ ...typeParameterMapping[typeAsString] });
+          } else {
+            typeArguments.push({
+              type: typeArgumentType,
+              declarations: typeArgumentType.symbol.declarations,
+            });
+          }
+        });
+      }
+
       const declaredType = resolveInterface(
         interfaceDeclaration,
         checker,
+        typeArguments,
         tags,
         strict
       );
@@ -684,8 +728,31 @@ const createCompositeTypeFromMultipleInterfaces = (
 
   let properties: PropertyMap = {};
   const interfaces: InterfaceDeclaration[] = [];
+  let typeParameterMapping: TypeParameterMapping = {};
   interfaceDeclarations.forEach((decl) => {
-    const interfaceDecl = resolveInterface(decl, checker, tags, strict);
+    // resolve any type arguments provided to property declaration
+    const typeArguments: ResolvedTypeArgument[] = [];
+    if (decl.typeParameters) {
+      decl.typeParameters.forEach((typeArgument) => {
+        const typeArgumentType = checker.getTypeAtLocation(typeArgument);
+        typeArguments.push({
+          type: typeArgumentType,
+          declarations: typeArgumentType.symbol.declarations,
+        });
+      });
+    }
+
+    const interfaceDecl = resolveInterface(
+      decl,
+      checker,
+      typeArguments,
+      tags,
+      strict
+    );
+    typeParameterMapping = {
+      ...typeParameterMapping,
+      ...interfaceDecl.typeParameterMapping,
+    };
     properties = {
       ...properties,
       ...interfaceDecl.properties,
@@ -697,6 +764,7 @@ const createCompositeTypeFromMultipleInterfaces = (
     name,
     checker,
     properties,
+    typeParameterMapping,
     tags,
     strict
   );

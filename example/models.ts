@@ -29,9 +29,14 @@ export interface Phase extends PhaseBase<Article> {}
 export interface PhaseBase<TArticle extends ArticleBase = Article> {
   name: string;
   phaseId: number;
-  articles: TArticle[];
+  subPhases: SubPhase<TArticle>[];
   optionalFieldsWork?: boolean;
   values: string[];
+}
+
+export interface SubPhase<TArticle extends ArticleBase = Article> {
+  subPhaseId: number;
+  articles: TArticle[];
 }
 
 export enum ArticleType {

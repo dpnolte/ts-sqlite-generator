@@ -189,8 +189,8 @@ ${pushes}
   query += ");";
   queries.push(query);
 
-${addChildrenQueries(table, tables, addDeclaredTypeAsImport)}
-${addBasicArrayChildrenQueries(table, tables, addDeclaredTypeAsImport)}
+${addChildrenQueries(table, tables, addDeclaredTypeAsImport, true)}
+${addBasicArrayChildrenQueries(table, tables, addDeclaredTypeAsImport, true)}
 
   return queries;
   };
@@ -275,8 +275,11 @@ ${pushes}
   query += ");";
   queries.push(query);
 
-${addChildrenQueries(table, tables, addDeclaredTypeAsImport) ?? ""}
-${addBasicArrayChildrenQueries(table, tables, addDeclaredTypeAsImport) ?? ""}
+${addChildrenQueries(table, tables, addDeclaredTypeAsImport, false) ?? ""}
+${
+  addBasicArrayChildrenQueries(table, tables, addDeclaredTypeAsImport, false) ??
+  ""
+}
 
   return queries;
   };
@@ -333,8 +336,11 @@ ${pushes}
   query += ");";
   queries.push(query);
 
-${addChildrenQueries(table, tables, addDeclaredTypeAsImport) ?? ""}
-${addBasicArrayChildrenQueries(table, tables, addDeclaredTypeAsImport) ?? ""}
+${addChildrenQueries(table, tables, addDeclaredTypeAsImport, false) ?? ""}
+${
+  addBasicArrayChildrenQueries(table, tables, addDeclaredTypeAsImport, false) ??
+  ""
+}
 
   return queries;
   };
@@ -420,12 +426,15 @@ export const getColumnValuePushesFromColumns = (
 const addChildrenQueries = (
   table: DefaultTable | AdvancedArrayTable,
   tables: TableMap,
-  addDeclaredTypeAsImport: (declaredType: DeclarationTypeMinimal) => void
+  addDeclaredTypeAsImport: (declaredType: DeclarationTypeMinimal) => void,
+  isInsertQueryForEntry: boolean
 ) => {
   const { primaryKey } = table;
   if (!primaryKey) {
     return "";
   }
+
+  const useReplace = isInsertQueryForEntry ? "false" : "useReplace";
 
   let result = "";
   table.declaredType.children.forEach((relation) => {
@@ -443,13 +452,13 @@ const addChildrenQueries = (
     if (property.isOptional) {
       if (relation.type === RelationType.OneToOne) {
         result += `  if (${selector}) {
-    queries.push(...${method}(${selector}, ${pk}));
+    queries.push(...${method}(${selector}, ${pk}, ${useReplace}));
   }
 `;
       } else if (relation.type === RelationType.OneToMany) {
         result += `  if (${selector}) {
-    queries.push(...${selector}.reduce((list, child, index) => {
-      list.push(...${method}(child, ${pk}, index));
+    queries.push(...${selector}.reduce((list, child, index, ${useReplace}) => {
+      list.push(...${method}(child, ${pk}, index, ${useReplace}));
       return list;
     }, [] as string[]));
   }
@@ -458,11 +467,11 @@ const addChildrenQueries = (
       // non-optional
     } else {
       if (relation.type === RelationType.OneToOne) {
-        result += `  queries.push(...${method}(${selector}, ${pk}));
+        result += `  queries.push(...${method}(${selector}, ${pk}, ${useReplace}));
 `;
       } else if (relation.type === RelationType.OneToMany) {
         result += `  queries.push(...${selector}.reduce((list, child, index) => {
-    list.push(...${method}(child, ${pk}, index));
+    list.push(...${method}(child, ${pk}, index, ${useReplace}));
     return list;
   }, [] as string[]));
 `;
@@ -476,12 +485,14 @@ const addChildrenQueries = (
 const addBasicArrayChildrenQueries = (
   table: Table,
   tables: TableMap,
-  addDeclaredTypeAsImport: (declaredType: DeclarationTypeMinimal) => void
+  addDeclaredTypeAsImport: (declaredType: DeclarationTypeMinimal) => void,
+  isInsertQueryForEntry: boolean
 ) => {
   let result = "";
   if (!table.primaryKey) return result;
 
   if (!isBasicArrayTable(table) && table.arrayTables.length > 0) {
+    const useReplace = isInsertQueryForEntry ? "false" : "useReplace";
     table.arrayTables.forEach((arrayTableName) => {
       const arrayTable = tables[arrayTableName] as BasicArrayTable;
       const { property } = arrayTable;
@@ -499,7 +510,7 @@ const addBasicArrayChildrenQueries = (
       if (property.isOptional) {
         result += `  if (${selector}) {
       queries.push(...${selector}.reduce((list, child, index) => {
-        list.push(...${method}(${pk}, child, index));
+        list.push(...${method}(${pk}, child, index, ${useReplace}));
         return list;
       }, [] as string[]));
     }
@@ -508,7 +519,7 @@ const addBasicArrayChildrenQueries = (
         // non-optional
       } else {
         result += `  queries.push(...${selector}.reduce((list, child, index) => {
-      list.push(...${method}(${pk}, child, index));
+      list.push(...${method}(${pk}, child, index, ${useReplace}));
       return list;
     }, [] as string[]));
   `;

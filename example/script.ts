@@ -53,7 +53,12 @@ const phase: Phase = {
   name: "phase",
   phaseId: 1,
   values: ["hallo", "hoi", "hey"],
-  articles: [{ ...article }],
+  subPhases: [
+    {
+      subPhaseId: 1,
+      articles: [{ ...article }],
+    },
+  ],
 };
 
 const queries = [];
@@ -71,7 +76,12 @@ queries.push(
   ...Queries.insertPhase({
     ...phase,
     phaseId: 2,
-    articles: [{ ...article, articleId: 9 }],
+    subPhases: [
+      {
+        subPhaseId: 2,
+        articles: [{ ...article, articleId: 9 }],
+      },
+    ],
   })
 );
 
@@ -80,14 +90,19 @@ queries.push(...Queries.deletePhase(2));
 queries.push(
   ...Queries.replacePhase(
     {
-      name: "replaced phase 1",
-      articles: [
+      name: "replaced phase 1 - step 1",
+      subPhases: [
         {
-          ...article,
-          title: "replaced article id from 1 to 2",
-          articleId: 2,
-          flag: false,
-          postDate: new Date(),
+          subPhaseId: 1,
+          articles: [
+            {
+              ...article,
+              title: "replaced article id from 1 to 2",
+              articleId: 2,
+              flag: false,
+              postDate: new Date(),
+            },
+          ],
         },
       ],
     },
@@ -99,13 +114,18 @@ queries.push(
   ...Queries.replacePhase(
     {
       name: "replaced phase 1 - step 2",
-      articles: [
+      subPhases: [
         {
-          ...article,
-          title: "replaced article id from 1 to 3",
-          articleId: 3,
-          flag: false,
-          postDate: new Date(),
+          subPhaseId: 1,
+          articles: [
+            {
+              ...article,
+              title: "replaced article id from 1 to 3",
+              articleId: 3,
+              flag: false,
+              postDate: new Date(),
+            },
+          ],
         },
       ],
     },

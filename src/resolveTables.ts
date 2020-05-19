@@ -39,6 +39,7 @@ export enum ColumnKind {
   BasedOnProperty,
   ArrayIndex,
   PrimaryKeyFromParent,
+  GeneratedPrimaryKey,
 }
 
 export interface Column {
@@ -169,7 +170,13 @@ const visitNode = (
     visitNode(relation.child, tags, tables, nextParent);
   });
 
-  const columns = resolveColumns(declaredType, properties, tags, parent);
+  const columns = resolveColumns(
+    declaredType,
+    properties,
+    primaryKey,
+    tags,
+    parent
+  );
   const foreignKeys = resolveForeignKeys(columns, parent);
   const indices = resolveIndices(properties, foreignKeys, tags, parent);
   const arrayTables = resolveArrayTables(
@@ -268,6 +275,7 @@ export const getProperties = (declaredType: DeclaredType): PropertyMap => {
 const resolveColumns = (
   declaredType: DeclaredType,
   properties: PropertyMap,
+  primaryKey: string | undefined,
   tags: Tags,
   parent?: ParentTableEssentials
 ) => {
@@ -283,6 +291,19 @@ const resolveColumns = (
   });
 
   addColumnsForRelationship(columns, parent);
+
+  // ensure primary key is added as column
+  if (primaryKey && !columns[primaryKey]) {
+    columns[primaryKey] = {
+      name: primaryKey,
+      primaryKey: true,
+      notNull: true,
+      kind: ColumnKind.GeneratedPrimaryKey,
+      autoIncrement: false,
+      unique: false,
+      type: DataType.INTEGER,
+    };
+  }
 
   return columns;
 };
