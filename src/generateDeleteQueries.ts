@@ -6,7 +6,8 @@ import {
   DefaultTable,
   AdvancedArrayTable,
   isBasicArrayTable,
-  getProperties
+  getProperties,
+  DataType,
 } from "./resolveTables";
 import { QueryExports } from "./generateExports";
 
@@ -21,7 +22,7 @@ export const generateDeleteQueries = (
   let content = "";
   const targetDir = path.dirname(targetPath);
 
-  Object.values(tables).forEach(table => {
+  Object.values(tables).forEach((table) => {
     if (table.declaredType.isEntry && !isBasicArrayTable(table)) {
       addNamedImport(table.declaredType, imports, targetDir);
       const relativePath = path.relative(targetDir, table.declaredType.path);
@@ -73,7 +74,9 @@ const generateDeleteQueriesForMultipleEntries = (
   const methodName = getMethodNameForMultiple(table);
   QueryExports.add(methodName);
 
-  let method = `const ${methodName} = (${primaryKey}s: number[]): string[] => {
+  let method = `const ${methodName} = (${primaryKey}s: ${
+    table.columns[primaryKey].type === DataType.TEXT ? "string" : "number"
+  }): string[] => {
   const queries: string[] = [];
 
   ${primaryKey}s.forEach(${primaryKey} => {

@@ -163,7 +163,9 @@ const generateUpdateEntryQuery = (
 
   const method = `export const ${methodName} = (
   input: Omit<Partial<${table.declaredType.name}>, '${primaryKey}'>,
-  ${primaryKey}: number,
+  ${primaryKey}: ${
+    table.columns[primaryKey].type === DataType.TEXT ? "string" : "number"
+  },
 ): string[] => {
   const queries: string[] = [];
   ${getColumnToValueArray(table, [primaryKey])}
@@ -198,7 +200,11 @@ const generateUpdateMultipleEntryQuery = (
   QueryExports.add(methodName);
 
   const method = `export const ${methodName} = (
-  inputs: { input: Omit<Partial<${table.declaredType.name}>, '${primaryKey}'>, ${primaryKey}: number }[],
+  inputs: { input: Omit<Partial<${
+    table.declaredType.name
+  }>, '${primaryKey}'>, ${primaryKey}: ${
+    table.columns[primaryKey].type === DataType.TEXT ? "string" : "number"
+  } }[],
 ): string[] => {
   const queries: string[] = [];
   inputs.forEach(inputAndId => {

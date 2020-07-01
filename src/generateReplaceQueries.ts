@@ -163,7 +163,9 @@ const generateReplaceEntryQuery = (
 
   const method = `const ${methodName} = (
     input: Omit<Partial<${table.declaredType.name}>, '${primaryKey}'>,
-    ${primaryKey}: number,
+    ${primaryKey}: ${
+    table.columns[primaryKey].type === DataType.TEXT ? "string" : "number"
+  },
   ): string[] => {
   const queries: string[] = [];
   const columns: string[] = [];
@@ -209,7 +211,11 @@ const generateReplaceMultipleEntryQuery = (
   QueryExports.add(methodName);
 
   const method = `export const ${methodName} = (
-  inputs: { input: Omit<Partial<${table.declaredType.name}>, '${primaryKey}'>, ${primaryKey}: number }[],
+  inputs: { input: Omit<Partial<${
+    table.declaredType.name
+  }>, '${primaryKey}'>, ${primaryKey}: ${
+    table.columns[primaryKey].type === DataType.TEXT ? "string" : "number"
+  } }[],
 ): string[] => {
   const queries: string[] = [];
   inputs.forEach(inputAndId => {
@@ -249,7 +255,12 @@ const generateReplaceOneToManyChildQuery = (
 
   const method = `const ${getMethodNameForChild(table)} = (
   inputs: ${table.declaredType.name}[],
-  ${columnName}: number
+  ${columnName}: ${
+    tables[foreignKey.parentTableName].columns[foreignKey.parentColumnName]
+      .type === DataType.TEXT
+      ? "string"
+      : "number"
+  }
 ): string[] => {
   const queries: string[] = [];
   
