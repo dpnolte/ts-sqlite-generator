@@ -100,7 +100,12 @@ const generateReplaceBasicArrayQuery = (
 
   const method = `const ${getMethodNameForChild(table)} = (
   ${COL_ARRAY_VALUES}: ${table.property.type}[],
-  ${parentTablePrimaryKey}: number,
+  ${parentTablePrimaryKey}: ${
+    tables[parentTableName].columns[parentTablePrimaryKey].type ===
+    DataType.TEXT
+      ? "string"
+      : "number"
+  },
 ): string[] => {
   const queries: string[] = [];
 

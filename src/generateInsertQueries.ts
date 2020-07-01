@@ -130,7 +130,11 @@ const generateInsertBasicArrayQuery = (
   ]);
 
   const method = `const ${getInsertMethodNameFromChild(table)} = (
-    ${parentTablePrimaryKey}: number,
+    ${parentTablePrimaryKey}: ${
+    parentTable.columns[parentTablePrimaryKey].type === DataType.TEXT
+      ? "string"
+      : "number"
+  },
     ${COL_ARRAY_VALUE}: ${table.property.type},
   ${COL_ARRAY_INDEX}: number,
   useReplace = false
@@ -255,7 +259,11 @@ const generateInsertOneToManyChildQuery = (
 
   const method = `const ${getInsertMethodNameFromChild(table)} = (
     input: ${table.declaredType.name},
-    ${parentTablePrimaryKey}: number,
+    ${parentTablePrimaryKey}: ${
+    parentTable.columns[parentTablePrimaryKey].type === DataType.TEXT
+      ? "string"
+      : "number"
+  },
     ${COL_ARRAY_INDEX}: number,
     useReplace = false,
   ): string[] => {
@@ -317,7 +325,11 @@ const generateInsertOneToOneChildQuery = (
 
   const method = `const ${getInsertMethodNameFromChild(table)} = (
     input: ${table.declaredType.name},
-    ${parentTablePrimaryKey}: number,
+    ${parentTablePrimaryKey}: ${
+    parentTable.columns[parentTablePrimaryKey].type === DataType.TEXT
+      ? "string"
+      : "number"
+  },
     useReplace = false,
   ): string[] => {
   const queries: string[] = [];

@@ -8,7 +8,7 @@ const defaultTags: Tags = {
   entry: "sqlite_entry",
   primaryKey: "sqlite_primary_key",
   index: "sqlite_index",
-  unique: "sqlite_uniq",
+  unique: "sqlite_unique",
   autoIncrement: "sqlite_auto_increment",
   real: "sqlite_real",
   numeric: "sqlite_numeric",
