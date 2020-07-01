@@ -75,7 +75,7 @@ const generateDeleteQueriesForMultipleEntries = (
   QueryExports.add(methodName);
 
   let method = `const ${methodName} = (${primaryKey}s: ${
-    table.columns[primaryKey].type === DataType.TEXT ? "string" : "number"
+    table.columns[primaryKey].type === DataType.TEXT ? "string[]" : "number[]"
   }): string[] => {
   const queries: string[] = [];
 
