@@ -136,6 +136,8 @@ const generateReplaceEntryQuery = (
     );
   }
 
+  const isPrimaryKeyString = table.columns[primaryKey].type === DataType.TEXT;
+
   const getters: ChildrenGetter[] = [];
   table.declaredType.children.forEach((relation) => {
     getters.push({
@@ -163,16 +165,16 @@ const generateReplaceEntryQuery = (
 
   const method = `const ${methodName} = (
     input: Omit<Partial<${table.declaredType.name}>, '${primaryKey}'>,
-    ${primaryKey}: ${
-    table.columns[primaryKey].type === DataType.TEXT ? "string" : "number"
-  },
+    ${primaryKey}: ${isPrimaryKeyString ? "string" : "number"},
   ): string[] => {
   const queries: string[] = [];
   const columns: string[] = [];
   const values: string[] = [];
   
   columns.push('${primaryKey}');
-  values.push(${primaryKey}.toString());
+  values.push(${
+    isPrimaryKeyString ? `\`'\${${primaryKey}}'\`` : `${primaryKey}.toString()`
+  });
 
 ${pushes}
   if (columns.length === 0 || values.length === 0) {
